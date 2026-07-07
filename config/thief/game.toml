@@ -1,0 +1,69 @@
+# THIEF peer configuration — this agent's private setup, fully separate from the
+# police peer (like two students on two different PCs). Game terms (board, smell,
+# rules, positions) MUST match the opponent's config: the pre-game signature
+# exchange verifies them and refuses to play on any mismatch.
+version = "1.10"
+
+[game]
+group_name = "Segal-Thief-Team"          # MY group name (shown in title bar, sealed into the log)
+sub_game_number = 1             # which sub-game of the series this run is
+
+[board]
+size = 7                        # game grid N x N -- must match opponent (signed term)
+
+[smell]
+grid_size = 5                   # smell grid M x M -- must match opponent (signed term)
+decay_per_step = 0.10
+min_center_intensity = 0.5
+emit_intensity = 0.9
+
+[rules]
+max_steps = 50                  # thief survives this many steps -> thief wins
+unique_cells_to_win = 40        # 7x7 has only 49 cells; 50 would be unwinnable
+barriers_max = 20
+
+[positions]
+thief_start = [3, 3]
+cop_start = [5, 3]                # (7,5) is off-board on 7x7
+
+[belief]
+smell_trust_weight = 4.0        # my private tuning (not a signed term)
+
+[gui]
+cell_px = 52
+
+[paths]
+logs_dir = "logs"
+log_filename = "{role}_match.json"
+
+[play]
+step_speed_seconds = 1.0        # MY GUI pacing (each peer has its own)
+setting = "New York"            # signed term
+seed = 1234
+
+[network]
+my_port = 8801                            # MY MCP server port
+opponent_url = "http://127.0.0.1:8802/mcp"  # the ONLY thing I know about the opponent
+turn_timeout_seconds = 180
+poll_interval_seconds = 0.5
+connect_timeout_seconds = 60
+retry_interval_seconds = 1.0
+audit_send_timeout_seconds = 10
+
+[llm]
+provider = "claude"
+executable = "claude"
+model = "claude-opus-4-8[1m]"   # MY model choice - the opponent may use a different one
+args = ["-p", "--output-format", "json"]
+timeout_seconds = 120
+response_field = "result"
+step_deadline_seconds = 30      # HARD cap on LLM thinking per step; miss -> random legal move
+short_prompt_threshold_seconds = 10  # deadline below this -> compact prompt (faster reply)
+
+[email]
+recipient = "rmisegal+uoh--final-26@gmail.com"
+mode = "draft"
+enabled = false
+timeout_seconds = 120
+draft_script = 'C:\Users\gal-t\.claude\skills\gg\email\draft\scripts\draft.py'
+skill_lib = 'C:\Users\gal-t\.claude\skills\gg\email\_lib'

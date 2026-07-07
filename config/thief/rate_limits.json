@@ -1,0 +1,28 @@
+{
+  "version": "1.10",
+  "services": {
+    "claude": {
+      "requests_per_minute": 30,
+      "concurrent_max": 2,
+      "retry_after_seconds": 5,
+      "max_retries": 3
+    },
+    "email": {
+      "requests_per_minute": 5,
+      "concurrent_max": 1,
+      "retry_after_seconds": 10,
+      "max_retries": 2
+    }
+  },
+  "default": {
+    "requests_per_minute": 30,
+    "concurrent_max": 2,
+    "retry_after_seconds": 5,
+    "max_retries": 3
+  },
+  "queue": {
+    "max_depth": 100,
+    "drain_interval_seconds": 0.1,
+    "timeout_seconds": 300
+  }
+}
