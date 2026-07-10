@@ -1,6 +1,11 @@
 # Police-vs-Thief: Fully Distributed AI Pursuit Simulation
 
-**Version 1.10** — final-project simulation for Dr. Segal's "AI Agent Orchestration"
+<!-- VERSIONS: auto-synced by scripts/sync_versions.py via the pre-commit hook. Do not edit the values between the markers by hand. -->
+> <!--CODE_VERSION_START-->**Code `v1.11`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.21`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
+>
+> These two versions are **deep-linked**: the book's cover and its reference appendix display this code version (read at LaTeX compile time), and this line is refreshed from the book on every `git commit` (pre-commit hook). This code implements a **minimal subset** of that book.
+
+Final-project simulation for Dr. Segal's "AI Agent Orchestration"
 course: two **standalone AI agent peers** (Police and Thief) chase each other on a
 configurable grid (currently **7×7**) — **no central server, no shared state, no
 referee**. Each peer is a fully independent process, like two students playing over
@@ -8,6 +13,29 @@ the internet from two different PCs: its own FastMCP server, its own config, its
 `claude -p` brain (CLI browser login, never an API key), its own LLM model choice,
 and its own Tkinter GUI. The entire game's integrity rests on **per-step SHA-256
 commit-reveal sealing** verified by a mutual post-game audit.
+
+> ### 📚 What this repo is — read this first
+>
+> This is the **public reference example** for the final project, described in the course
+> guidelines book (appendix *"מאגר הקוד לדוגמה"*). Repository:
+> **<https://github.com/rmisegal/Game-P2P-Cop-Chase>**
+>
+> It demonstrates the **basic game flow and a simple GUI, without strategy** — a **learning
+> aid, not a submission skeleton**. It **intentionally does _not_ meet the full project
+> specification**: there is **no point scoring**, movement uses **8-direction king moves**
+> (the book mandates 4 orthogonal), capture-by-barrier and boxed-in capture are not
+> implemented, and there is **no explicit state machine / watchdog**. **Do not start your
+> submission from this repo.**
+>
+> You _may_ reuse or modify parts of the code, and use it to learn how a specific piece is
+> implemented or to clarify anything left unclear in the book — but your **graded solution
+> must meet the full specification on its own**. Where this repo differs from the book, the
+> **book and its binding parameter table win**.
+>
+> **Tip — query the code with NotebookLM:** export all repo files to `.txt`, load them into
+> [NotebookLM](https://notebooklm.google.com), and ask questions about the code as if you had
+> a dedicated chatbot for the simulation — e.g. *"where is the belief map computed?"* or
+> *"how is the commit-reveal protocol enforced?"*.
 
 ## Core idea
 
@@ -21,8 +49,8 @@ Each agent only ever knows:
 
 Capture protocol (no referee): the cop lands on a cell and sends a `capture_claim`; the
 thief must answer honestly (the audit would expose a lie). The thief wins by surviving
-`max_steps` (default 50) or by visiting `unique_cells_to_win` distinct cells (40 on the
-7×7 board). A silent opponent past `turn_timeout_seconds` is a technical loss.
+`max_steps` (default 50) steps without being caught. A silent opponent past
+`turn_timeout_seconds` is a technical loss.
 
 Every sealed step payload records the **LLM model, token usage (delta-accounted:
 a step that never called the LLM seals 0 tokens), response time, and whether the move
@@ -110,7 +138,6 @@ match the opponent, enforced cryptographically at negotiation) vs **private sett
 | `smell.decay_per_step` | 0.10 | ✔ | smell decay per step |
 | `smell.emit_intensity` | 0.9 | – | intensity at my smell center |
 | `rules.max_steps` | 50 | ✔ | thief survives this many steps → thief wins |
-| `rules.unique_cells_to_win` | 40 | ✔ | distinct cells for a thief win (7×7 has 49 cells) |
 | `rules.barriers_max` | 20 | ✔ | cop's barrier quota |
 | `positions.thief_start` / `cop_start` | [3,3] / [5,3] | ✔ | start cells |
 | `play.setting` | "New York" | ✔ | scenery vocabulary for NL hints |

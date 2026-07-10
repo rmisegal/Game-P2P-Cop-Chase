@@ -26,7 +26,7 @@ class TurnMessage:
     barrier_placed: list | None = None    # public declaration: impassable for both
     capture_claim: list | None = None     # police only: "I claim you are at [r,c]"
     claim_response: dict | None = None    # thief's honest {"claim": [r,c], "caught": bool}
-    win_claim: dict | None = None         # thief's {"type": "survival"|"unique_cells"}
+    win_claim: dict | None = None         # thief's {"type": "survival"}
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -46,7 +46,7 @@ class AuditPayload:
 
     sender: str
     records: list                      # [{"payload": {...}, "nonce": str, "commit": str}]
-    result_claim: str                  # "capture" | "survival" | "unique_cells" | "timeout"
+    result_claim: str                  # "capture" | "survival" | "timeout"
 
     def to_dict(self) -> dict:
         return asdict(self)

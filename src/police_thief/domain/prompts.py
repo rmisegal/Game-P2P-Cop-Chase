@@ -41,10 +41,9 @@ def thief_prompt(state, belief, opponent_hint, setting, barriers_max, short=Fals
     return (
         "You are the THIEF agent in a distributed cop-and-thief pursuit game.\n"
         + _common(state, belief, opponent_hint, setting)
-        + f"I have visited {state.unique_cells} unique cells; visiting new cells wins the game, "
-          "being caught loses. Evade the cop: move away from its likely position, prefer "
-          "unvisited cells, and craft a deceptive or honest hint as strategy dictates. "
-          "You cannot place barriers.\n"
+        + "Survive without being caught to win; being caught loses. Evade the cop: move away "
+          "from its likely position, prefer unvisited cells, and craft a deceptive or honest "
+          "hint as strategy dictates. You cannot place barriers.\n"
         + REPLY_CONTRACT.replace("{setting}", setting)
     )
 

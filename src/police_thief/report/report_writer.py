@@ -14,7 +14,6 @@ from police_thief.shared.version import CODE_VERSION
 _RESULT_HEBREW = {
     "capture": "לכידה",
     "survival": "הישרדות",
-    "unique_cells": "ביקור_חמישים_תאים",
     "timeout": "תוצאה_טכנית",
 }
 

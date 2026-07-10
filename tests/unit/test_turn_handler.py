@@ -16,7 +16,7 @@ def handler():
     state = OwnGameState(role=Role.THIEF, start=(5, 5), board_size=10)
     belief = BeliefGrid(board_size=10)
     smell = SmellField(board_size=10, grid_size=5, decay=0.1, min_center=0.5)
-    rules = GameRules(max_steps=50, unique_cells_to_win=50)
+    rules = GameRules(max_steps=50)
     return TurnHandler(state=state, belief=belief, smell_field=smell, rules=rules)
 
 

@@ -13,14 +13,11 @@ from police_thief.domain.own_state import OwnGameState
 class GameRules:
     """Configured end-of-game conditions."""
 
-    def __init__(self, max_steps: int, unique_cells_to_win: int):
+    def __init__(self, max_steps: int):
         self.max_steps = max_steps
-        self.unique_cells_to_win = unique_cells_to_win
 
     def thief_result(self, state: OwnGameState) -> str | None:
-        """The thief's win claim, if any: 'unique_cells', 'survival' or None."""
-        if state.unique_cells >= self.unique_cells_to_win:
-            return "unique_cells"
+        """The thief's win claim, if any: 'survival' or None."""
         if state.step_number >= self.max_steps:
             return "survival"
         return None

@@ -54,7 +54,6 @@ def terms_from_config(cfg) -> dict:
         "smell_grid_size": cfg.get("smell.grid_size"),
         "decay_per_step": cfg.get("smell.decay_per_step"),
         "max_steps": cfg.get("rules.max_steps"),
-        "unique_cells_to_win": cfg.get("rules.unique_cells_to_win"),
         "barriers_max": cfg.get("rules.barriers_max"),
         "setting": cfg.get("play.setting"),
         "thief_start": cfg.get("positions.thief_start"),

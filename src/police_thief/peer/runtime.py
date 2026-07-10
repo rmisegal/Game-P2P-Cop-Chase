@@ -50,8 +50,7 @@ class PeerRuntime:
             decay=config.get("smell.decay_per_step"),
             min_center=config.get("smell.min_center_intensity"),
         )
-        self.rules = GameRules(config.get("rules.max_steps"),
-                               config.get("rules.unique_cells_to_win"))
+        self.rules = GameRules(config.get("rules.max_steps"))
         self.handler = TurnHandler(self.state, self.belief, self.smell, self.rules)
         brain_cls = ThiefBrain if role is Role.THIEF else PoliceBrain
         self.brain = brain_cls(llm, rng=random.Random(config.get("play.seed")))

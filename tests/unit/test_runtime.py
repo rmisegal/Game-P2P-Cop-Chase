@@ -88,7 +88,7 @@ class TestDistributedMatch:
         results = run_match(thief, police)
         assert results["thief"]["result"] == results["police"]["result"]
         assert results["thief"]["winner"] == results["police"]["winner"]
-        assert results["thief"]["result"] in ("capture", "survival", "unique_cells")
+        assert results["thief"]["result"] in ("capture", "survival")
 
     def test_audits_pass_both_ways(self, paired_runtimes):
         thief, police = paired_runtimes

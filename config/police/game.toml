@@ -19,7 +19,6 @@ emit_intensity = 0.9
 
 [rules]
 max_steps = 50                  # thief survives this many steps -> thief wins
-unique_cells_to_win = 40        # 7x7 has only 49 cells; 50 would be unwinnable
 barriers_max = 20
 
 [positions]

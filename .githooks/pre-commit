@@ -1,0 +1,7 @@
+#!/bin/sh
+# Deep-link versions on every commit: refresh README.md (code + book version) and
+# bundle the latest guidelines-book PDF into docs/, then stage the results so they
+# are part of this commit. Never blocks a commit if the sibling book repo is absent.
+python scripts/sync_versions.py || exit 0
+git add README.md docs/police_thief_p2p.pdf >/dev/null 2>&1 || true
+exit 0

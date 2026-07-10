@@ -5,8 +5,8 @@ from police_thief.domain.own_state import OwnGameState
 from police_thief.domain.rules import GameRules
 
 
-def rules(max_steps=50, unique=50):
-    return GameRules(max_steps=max_steps, unique_cells_to_win=unique)
+def rules(max_steps=50):
+    return GameRules(max_steps=max_steps)
 
 
 class TestGameRules:
@@ -16,22 +16,14 @@ class TestGameRules:
 
     def test_thief_survival_win_at_max_steps(self):
         state = OwnGameState(role=Role.THIEF, start=(5, 5), board_size=10)
-        game_rules = rules(max_steps=3, unique=50)
+        game_rules = rules(max_steps=3)
         for direction in (Direction.N, Direction.S, Direction.N):
             state.apply_move(MoveType.MOVE, direction)
         assert game_rules.thief_result(state) == "survival"
 
-    def test_thief_unique_cells_win(self):
-        state = OwnGameState(role=Role.THIEF, start=(0, 0), board_size=10)
-        game_rules = rules(max_steps=50, unique=3)
-        state.apply_move(MoveType.MOVE, Direction.E)
-        assert game_rules.thief_result(state) is None
-        state.apply_move(MoveType.MOVE, Direction.E)
-        assert game_rules.thief_result(state) == "unique_cells"
-
     def test_max_steps_configurable(self):
         state = OwnGameState(role=Role.THIEF, start=(5, 5), board_size=10)
-        game_rules = rules(max_steps=1, unique=50)
+        game_rules = rules(max_steps=1)
         state.apply_move(MoveType.MOVE, Direction.N)
         assert game_rules.thief_result(state) == "survival"
 

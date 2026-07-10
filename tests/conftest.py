@@ -19,7 +19,6 @@ min_center_intensity = 0.5
 emit_intensity = 0.9
 [rules]
 max_steps = 50
-unique_cells_to_win = 50
 barriers_max = 20
 [positions]
 thief_start = [5, 5]
