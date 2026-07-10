@@ -15,6 +15,7 @@ _RESULT_HEBREW = {
     "capture": "לכידה",
     "survival": "הישרדות",
     "timeout": "תוצאה_טכנית",
+    "tamper_forfeit": "פסילת_זיוף",
 }
 
 

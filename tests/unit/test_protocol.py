@@ -11,7 +11,7 @@ def message():
         step=3,
         sender="thief",
         hint="Grabbing a cab east toward First Avenue.",
-        smell_grid={"center": [4, 4], "values": [[0.9]]},
+        smell_grid={"4,4": 0.9},
         commit="ab" * 32,
         barrier_placed=None,
         capture_claim=None,

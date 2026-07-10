@@ -50,6 +50,13 @@ class PeerRuntime:
             decay=config.get("smell.decay_per_step"),
             min_center=config.get("smell.min_center_intensity"),
         )
+        # My own emitted scent as a decaying trail; only its intensity field is sent
+        # to the opponent (never my exact cell), so no position coordinate leaks.
+        self.my_scent = SmellField(
+            board_size=size, grid_size=config.get("smell.grid_size"),
+            decay=config.get("smell.decay_per_step"),
+            min_center=config.get("smell.min_center_intensity"),
+        )
         self.rules = GameRules(config.get("rules.max_steps"))
         self.handler = TurnHandler(self.state, self.belief, self.smell, self.rules)
         brain_cls = ThiefBrain if role is Role.THIEF else PoliceBrain
@@ -150,9 +157,10 @@ class PeerRuntime:
                                     self._tokens_total, decision.response_seconds,
                                     decision.random_move)
         self.records.append(record)
+        self.my_scent.deposit(self.state.position, self._config.get("smell.emit_intensity"))
+        self.my_scent.decay_all()
         message = build_turn_message(
-            self.state, self.role.value, decision.hint,
-            self.smell.emit(self.state.position, self._config.get("smell.emit_intensity")),
+            self.state, self.role.value, decision.hint, self.my_scent.snapshot(),
             record["commit"], capture_claim, claim_response, win_claim,
         )
         self._transport.send_turn(message.to_dict())

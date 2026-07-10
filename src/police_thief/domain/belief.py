@@ -29,16 +29,14 @@ class BeliefGrid:
             return
         self._probs = [[p / total for p in row] for row in self._probs]
 
-    def observe_smell(self, grid: dict) -> None:
-        """Bayesian-ish update: scale cells under the smell grid by (1 + intensity)."""
-        center_row, center_col = grid["center"]
-        values = grid["values"]
-        half = len(values) // 2
-        for i, row in enumerate(values):
-            for j, value in enumerate(row):
-                r, c = center_row - half + i, center_col - half + j
-                if 0 <= r < self._size and 0 <= c < self._size:
-                    self._probs[r][c] *= 1.0 + self._smell_trust * value
+    def observe_smell(self, cells: dict) -> None:
+        """Bayesian-ish update from a received scent-cell map {'r,c': intensity}:
+        scale each cell's probability by (1 + trust*intensity). No explicit position
+        is supplied — the belief is inferred from the decaying scent field alone."""
+        for key, value in cells.items():
+            r, c = (int(x) for x in key.split(","))
+            if 0 <= r < self._size and 0 <= c < self._size:
+                self._probs[r][c] *= 1.0 + self._smell_trust * value
         self._normalize()
 
     def diffuse(self) -> None:

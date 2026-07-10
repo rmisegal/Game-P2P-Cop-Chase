@@ -17,14 +17,13 @@ class TestBeliefGrid:
         assert sum(sum(row) for row in probs) == pytest.approx(1.0)
 
     def test_smell_observation_concentrates_probability(self, belief):
-        grid = {"center": [3, 3], "values": [[0.7]]}
-        belief.observe_smell(grid)
+        belief.observe_smell({"3,3": 0.7})
         probs = belief.as_matrix()
         assert probs[3][3] > probs[9][9]
         assert sum(sum(row) for row in probs) == pytest.approx(1.0)
 
     def test_diffuse_spreads_after_move(self, belief):
-        belief.observe_smell({"center": [3, 3], "values": [[0.9]]})
+        belief.observe_smell({"3,3": 0.9})
         peak_before = belief.as_matrix()[3][3]
         belief.diffuse()
         after = belief.as_matrix()
@@ -39,5 +38,5 @@ class TestBeliefGrid:
         assert sum(sum(row) for row in probs) == pytest.approx(1.0)
 
     def test_most_likely_cell(self, belief):
-        belief.observe_smell({"center": [7, 2], "values": [[0.8]]})
+        belief.observe_smell({"7,2": 0.8})
         assert belief.most_likely() == (7, 2)

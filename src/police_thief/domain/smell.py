@@ -19,36 +19,38 @@ class SmellField:
         self._min_center = min_center
         self._values: dict[Cell, float] = {}
 
-    def emit(self, center: Cell, intensity: float) -> dict:
-        """Build the MxM smell grid message centred on a chosen cell.
+    def _radial(self, center: Cell, intensity: float) -> dict[Cell, float]:
+        """Radial emission around a cell; intensity falls off with Chebyshev distance."""
+        half = self._grid_size // 2
+        falloff = intensity / (half + 1)
+        out: dict[Cell, float] = {}
+        for dr in range(-half, half + 1):
+            for dc in range(-half, half + 1):
+                cell = (center[0] + dr, center[1] + dc)
+                if 0 <= cell[0] < self._board_size and 0 <= cell[1] < self._board_size:
+                    out[cell] = round(max(0.0, intensity - falloff * max(abs(dr), abs(dc))), 3)
+        return out
 
-        Intensity falls off with Chebyshev distance from the center; the center
-        cell must meet the configured minimum (game rule: at least one cell >= 0.5).
+    def deposit(self, center: Cell, intensity: float) -> None:
+        """Lay a fresh radial scent around `center` into the trail (max-merge).
+
+        The center cell must meet the configured minimum (>= 0.5). Only the resulting
+        intensity FIELD is ever transmitted (via ``snapshot``) — never an explicit
+        position — so no direct coordinate crosses the wire (hidden-opponent model).
         """
         if intensity < self._min_center:
             raise ValueError(
                 f"Center intensity {intensity} below required minimum {self._min_center}"
             )
-        half = self._grid_size // 2
-        falloff = intensity / (half + 1)
-        values = [
-            [
-                round(max(0.0, intensity - falloff * max(abs(dr), abs(dc))), 3)
-                for dc in range(-half, half + 1)
-            ]
-            for dr in range(-half, half + 1)
-        ]
-        return {"center": [center[0], center[1]], "values": values}
+        for cell, value in self._radial(center, intensity).items():
+            self._values[cell] = max(self._values.get(cell, 0.0), value)
 
-    def absorb(self, grid: dict) -> None:
-        """Merge a received MxM grid into the known field (max wins per cell)."""
-        center_row, center_col = grid["center"]
-        half = self._grid_size // 2
-        for i, row in enumerate(grid["values"]):
-            for j, value in enumerate(row):
-                cell = (center_row - half + i, center_col - half + j)
-                if 0 <= cell[0] < self._board_size and 0 <= cell[1] < self._board_size:
-                    self._values[cell] = max(self._values.get(cell, 0.0), value)
+    def absorb(self, cells: dict) -> None:
+        """Merge a received scent-cell map {'r,c': intensity} into the field (max wins)."""
+        for key, value in cells.items():
+            row, col = (int(x) for x in key.split(","))
+            if 0 <= row < self._board_size and 0 <= col < self._board_size:
+                self._values[(row, col)] = max(self._values.get((row, col), 0.0), value)
 
     def decay_all(self) -> None:
         """One game step passed: every intensity drops by the decay constant."""

@@ -25,7 +25,7 @@ def msg(**overrides):
         "step": 1,
         "sender": "police",
         "hint": "Closing in from the flank.",
-        "smell_grid": {"center": [7, 5], "values": [[0.8]]},
+        "smell_grid": {"7,5": 0.8},
         "commit": "cc" * 32,
         "timestamp": "2026-07-06T10:00:00Z",
         "barrier_placed": None,

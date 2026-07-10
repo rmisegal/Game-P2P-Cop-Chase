@@ -17,7 +17,7 @@ def summary(result="capture", winner="police"):
         ],
         "history": [
             {"step": 1, "sender": "thief", "hint": "Taxi east!",
-             "smell_grid": {"center": [4, 4], "values": [[0.9]]},
+             "smell_grid": {"4,4": 0.9},
              "commit": "cc" * 32, "timestamp": "2026-07-06T10:00:00Z",
              "barrier_placed": None, "capture_claim": None,
              "claim_response": None, "win_claim": None},

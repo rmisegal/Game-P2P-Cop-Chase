@@ -51,6 +51,10 @@ def finish(rt) -> dict:
         theirs = rt._transport.exchange_audit(mine.to_dict())
         if theirs is not None:
             audit = audit_records(AuditPayload.from_dict(theirs).records)
+            if not audit["passed"]:
+                # Iron rule: a forged/tampered opponent log forfeits the game — the
+                # honest peer wins by technical decision regardless of the board result.
+                result, winner = "tamper_forfeit", rt.role.value
     summary = {
         "result": result, "winner": winner, "steps": rt.state.step_number,
         "tokens_total": rt._tokens_total,

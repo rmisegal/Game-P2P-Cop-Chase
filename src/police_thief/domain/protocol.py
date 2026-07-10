@@ -20,7 +20,7 @@ class TurnMessage:
     step: int
     sender: str                        # "thief" | "police"
     hint: str                          # free NL message with a location cue (may lie)
-    smell_grid: dict                   # {"center": [r,c], "values": [[MxM]]}
+    smell_grid: dict                   # {"r,c": intensity} decaying scent trail (no position)
     commit: str                        # SHA256(state|move|verdict|nonce), nonce withheld
     timestamp: str                     # real-time ISO-8601 (book: mandatory per move)
     barrier_placed: list | None = None    # public declaration: impassable for both
