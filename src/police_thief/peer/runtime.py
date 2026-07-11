@@ -155,9 +155,7 @@ class PeerRuntime:
         self._send(final, self._step_usage(), claim_response, None, None)
 
     def _send(self, decision, usage, claim_response, capture_claim, win_claim) -> None:
-        record = sealed_step_record(self.state, decision.verdict, decision.hint, usage,
-                                    self._tokens_total, decision.response_seconds,
-                                    decision.random_move)
+        record = sealed_step_record(self.state, decision, usage, self._tokens_total)
         self.records.append(record)
         self.my_scent.deposit(self.state.position, self._config.get("smell.emit_intensity"))
         self.my_scent.decay_all()

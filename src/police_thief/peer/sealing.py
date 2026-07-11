@@ -28,21 +28,36 @@ def sealed_spec_record(config) -> dict:
     return {"payload": payload, **CommitReveal.seal(payload)}
 
 
-def sealed_step_record(state, verdict: str, hint: str, usage: dict,
-                       tokens_total: int, response_seconds: float = 0.0,
-                       random_move: bool = False) -> dict:
-    """One turn's true state + move + verdict + tokens + timing, sealed."""
+def _state_str(state) -> str:
+    """Compact, replayable board-state string for the sealed record."""
+    barriers = sorted([list(b) for b in state.barriers])
+    return f"grid={state.board.size}x{state.board.size};self={list(state.position)};barriers={barriers}"
+
+
+def sealed_step_record(state, decision, usage: dict, tokens_total: int) -> dict:
+    """One turn's true state + move + intent + hint + prompt-discussion + tokens, sealed.
+
+    `decision` is the brain's Decision (verdict, hint, prompt_text, reasoning, timing).
+    The whole payload is hashed, so prompt_discussion is audit-covered too.
+    """
     payload = {
         "step": state.step_number,
+        "state": _state_str(state),
         "position": list(state.position),
         "move": state.log[-1]["move"] if state.log else "-",
-        "verdict": verdict,
-        "hint": hint,
+        "intent": decision.verdict,
+        "verdict": decision.verdict,  # kept for existing audit/replay/report consumers
+        "hint": decision.hint,
+        "prompt_discussion": {
+            "llm_prompt": decision.prompt_text,
+            "llm_reasoning": decision.reasoning,
+            "bluff_classification": decision.verdict,
+        },
         "model": usage.get("model", "unknown"),
         "tokens_step": usage.get("total", 0),
         "tokens_total": tokens_total,
-        "response_seconds": response_seconds,
-        "random_move": random_move,
+        "response_seconds": decision.response_seconds,
+        "random_move": decision.random_move,
     }
     return {"payload": payload, **CommitReveal.seal(payload)}
 

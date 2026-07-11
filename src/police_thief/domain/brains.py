@@ -32,6 +32,8 @@ class Decision:
     fallback: bool = False       # heuristic policy used (LLM reply unusable)
     random_move: bool = False    # deadline missed -> random legal move
     response_seconds: float = 0.0
+    prompt_text: str = ""        # the exact prompt sent to the LLM (for the log)
+    reasoning: str = ""          # the model's one-line rationale (for the log)
 
 
 class BrainBase:
@@ -64,6 +66,13 @@ class BrainBase:
         except Exception as exc:
             logger.warning("%s brain LLM failed: %s", self.role, exc)
             decision = self._fallback(state, belief)
+        decision.prompt_text = prompt
+        if not decision.reasoning:
+            decision.reasoning = (
+                "deadline missed: random legal move" if decision.random_move
+                else "heuristic fallback (LLM reply unusable)" if decision.fallback
+                else ""
+            )
         decision.response_seconds = round(time.perf_counter() - started, 2)
         return decision
 
@@ -92,11 +101,12 @@ class BrainBase:
             direction = Direction(data["move"]["dir"]) if data["move"].get("dir") else None
             hint = str(data["message"]).strip()
             verdict = str(data.get("verdict", VERDICT_TRUTH))
+            reasoning = str(data.get("reasoning", "")).strip()
         except (json.JSONDecodeError, KeyError, ValueError, TypeError):
             return None
         if not hint or not self._is_legal(move_type, direction, state, barriers_max):
             return None
-        return Decision(move_type, direction, hint, verdict)
+        return Decision(move_type, direction, hint, verdict, reasoning=reasoning)
 
     def _is_legal(self, move_type: MoveType, direction: Direction | None,
                   state: OwnGameState, barriers_max: int) -> bool:
