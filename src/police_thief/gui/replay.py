@@ -15,16 +15,50 @@ from police_thief.domain.crypto import CommitReveal
 from police_thief.exceptions import CryptoError
 
 
+def normalize_log(log_data: dict) -> dict:
+    """Accept EITHER the legacy match log (records/history/my_log nested under
+    'summary') OR the standardized template log (records at top level, no smell
+    'history'). Returns a uniform view; when the smell history is absent the
+    belief heatmap simply stays flat while crypto re-verification still runs."""
+    summary = log_data.get("summary", {})
+    records = log_data.get("records") or summary.get("records", [])
+    my_log = summary.get("my_log")
+    if my_log is None:  # standardized format: rebuild a minimal move log from records
+        my_log = [
+            {"position": r["payload"].get("position", [0, 0]), "barrier": None}
+            for r in records
+            if r.get("payload", {}).get("type") != "system_spec"
+        ]
+    return {
+        "summary": summary,
+        "records": records,
+        "history": summary.get("history", []),
+        "my_log": my_log,
+        "role": summary.get("role", "-"),
+        "result": summary.get("result", "-"),
+        "winner": summary.get("winner") or summary.get("winner_role", "-"),
+        "group": summary.get("group_name") or summary.get("group_id", "unnamed"),
+        "sub_game_number": summary.get("sub_game_number", 1),
+        "duration_seconds": summary.get("duration_seconds", 0),
+        "audit": summary.get("audit", {"passed": True}),
+    }
+
+
 class ReplayApp:
     """Steps through one peer's saved log with play/pause + speed control."""
 
     def __init__(self, config, log_data: dict):
         from police_thief.gui.window import PeerWindow
 
-        self._summary = log_data["summary"]
-        self._records = self._summary["records"]
-        self._history = self._summary["history"]
-        self._my_log = self._summary["my_log"]
+        view = normalize_log(log_data)
+        self._summary = view["summary"]
+        self._records = view["records"]
+        self._history = view["history"]
+        self._my_log = view["my_log"]
+        self._role = view["role"]
+        self._result = view["result"]
+        self._winner = view["winner"]
+        self._audit = view["audit"]
         size = config.get("board.size")
         self._belief = BeliefGrid(board_size=size)
         self._barriers: set = set()
@@ -32,9 +66,8 @@ class ReplayApp:
         self._index = 0
         self._playing = False
         self._window = PeerWindow(
-            f"REPLAY: {self._summary.get('group_name', 'unnamed')} | "
-            f"sub-game {self._summary.get('sub_game_number', 1)} | "
-            f"{self._summary['role']} | {self._summary.get('duration_seconds', 0)}s",
+            f"REPLAY: {view['group']} | sub-game {view['sub_game_number']} | "
+            f"{view['role']} | {view['duration_seconds']}s",
             size, config.get("play.step_speed_seconds"))
         spec = next((r["payload"] for r in self._records
                      if r["payload"].get("type") == "system_spec"), {})
@@ -65,8 +98,8 @@ class ReplayApp:
     def _advance(self) -> None:
         steps = max(len(self._my_log), len(self._history))
         if self._index >= steps:
-            self._window.set_turn(False, f"REPLAY DONE: {self._summary['result']} - "
-                                         f"winner {self._summary['winner'].upper()}")
+            self._window.set_turn(False, f"REPLAY DONE: {self._result} - "
+                                         f"winner {str(self._winner).upper()}")
             self._playing = False
             return
         i = self._index
@@ -97,11 +130,11 @@ class ReplayApp:
             self._window.set_label("hint_in", message["hint"])
         position = tuple(self._my_log[min(i, len(self._my_log) - 1)]["position"])
         self._window.render({
-            "role": self._summary["role"], "step": i + 1, "position": position,
+            "role": self._role, "step": i + 1, "position": position,
             "barriers": self._barriers, "visited": self._visited,
             "belief": self._belief.as_matrix(),
         })
-        audit = self._summary["audit"]
+        audit = self._audit
         self._window.set_label(
             "status", f"step {i + 1}/{steps} | opponent audit: "
                       f"{'PASSED' if audit['passed'] else 'FAILED'}")
