@@ -1,20 +1,22 @@
 # Copyright (c) 2026 Dr. Yoram Segal / Gal Technologies Artificial Intelligence Ltd. (GTAI).
 # All rights reserved. Educational Use EULA - see LICENSE. Contact: segal@gal-tech.ai
-"""Agent brains: claude -p decides message + move + truth/lie from the peer's
-OWN view. Strict JSON contract; any illegal or unparseable answer falls back to
-a deterministic legal policy so the autonomous loop never stalls.
+"""Agent brains: the MOVE is chosen by a pure-Python strategy (the student's
+seam) — the LLM is NEVER consulted for it. The LLM, if enabled at all, only
+writes optional trash-talk banter (see ``strategy/trash_talk.py``). The shipped
+banter provider is a zero-token template, so the game runs fast and free by
+default and students compete on the algorithm, not on prompting a big model.
+
+Override points for students (see ``docs/STRATEGY.md``):
+  * ``_pick_move(moves, state, belief)`` — pick a legal move (the core heuristic).
+  * ``_decide_move(state, belief, barriers_max)`` — full move incl. BARRIER (police).
 """
 
-import json
 import logging
 import random
 import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 
-from police_thief.constants import FALLBACK_HINT, VERDICT_TRUTH, Direction, MoveType, Role
-from police_thief.domain import prompts
+from police_thief.constants import Direction, MoveType, Role
 from police_thief.domain.belief import BeliefGrid
 from police_thief.domain.own_state import OwnGameState
 
@@ -23,124 +25,68 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Decision:
-    """What the brain chose for this turn."""
+    """What the brain chose for this turn (move = Python, hint = trash talk)."""
 
     move_type: MoveType
     direction: Direction | None
     hint: str
     verdict: str
-    fallback: bool = False       # heuristic policy used (LLM reply unusable)
-    random_move: bool = False    # deadline missed -> random legal move
+    fallback: bool = False       # reserved (move policy fell back to HOLD)
+    random_move: bool = False    # reserved (kept for log/replay compatibility)
     response_seconds: float = 0.0
-    prompt_text: str = ""        # the exact prompt sent to the LLM (for the log)
-    reasoning: str = ""          # the model's one-line rationale (for the log)
+    prompt_text: str = ""        # the trash-talk prompt sent to the LLM ("" for template)
+    reasoning: str = ""          # the model's one-line rationale ("" for template)
 
 
 class BrainBase:
-    """Shared LLM-call / parse / deadline / fallback machinery."""
+    """Decision policy. `_pick_move` / `_decide_move` is the student's seam;
+    `decide` chooses the move in pure Python and never asks the LLM for it."""
 
     role: Role
-    prompt_builder = staticmethod(prompts.thief_prompt)
 
-    def __init__(self, llm, rng: random.Random | None = None):
-        self._llm = llm  # anything with .send(prompt) -> str (provider or stub)
+    def __init__(self, llm=None, rng: random.Random | None = None, trash=None):
+        self._llm = llm  # kept for provider=claude_cli trash talk; unused otherwise
         self._rng = rng or random.Random()
+        if trash is None:  # lazy import avoids a brains<->strategy import cycle
+            from police_thief.strategy.trash_talk import TrashTalk
+            trash = TrashTalk(self._rng)
+        self._trash = trash
 
     def decide(self, state: OwnGameState, belief: BeliefGrid, opponent_hint: str,
                setting: str, barriers_max: int, deadline_seconds: float | None = None,
                short_threshold: float = 0.0) -> Decision:
-        if deadline_seconds is not None and deadline_seconds <= 0.05:
-            return self._random_move(state)  # budget ~zero: don't even ask the LLM
-        short = bool(deadline_seconds) and deadline_seconds < short_threshold
-        prompt = type(self).prompt_builder(state, belief, opponent_hint, setting,
-                                           barriers_max, short=short)
+        # 1) MOVE — pure Python strategy. The LLM is NEVER consulted here, so the
+        #    move is instant and free regardless of any LLM speed/availability.
+        move_type, direction = self._decide_move(state, belief, barriers_max)
+        # 2) HINT — trash talk. Template (zero tokens) by default; a small LLM only
+        #    if [trash_talk] opts in. A slow/failed LLM falls back to the template.
         started = time.perf_counter()
-        try:
-            reply = self._ask(prompt, deadline_seconds)
-            decision = self._parse(reply, state, barriers_max)
-            if decision is None:  # LLM answered, but unusable -> heuristic policy
-                decision = self._fallback(state, belief)
-        except FutureTimeout:  # deadline ENFORCED: no answer in time -> random move
-            logger.warning("%s brain missed the %ss deadline", self.role, deadline_seconds)
-            decision = self._random_move(state)
-        except Exception as exc:
-            logger.warning("%s brain LLM failed: %s", self.role, exc)
-            decision = self._fallback(state, belief)
-        decision.prompt_text = prompt
-        if not decision.reasoning:
-            decision.reasoning = (
-                "deadline missed: random legal move" if decision.random_move
-                else "heuristic fallback (LLM reply unusable)" if decision.fallback
-                else ""
-            )
-        decision.response_seconds = round(time.perf_counter() - started, 2)
-        return decision
+        hint, verdict, reasoning, prompt = self._trash.say(
+            self.role, state, belief, setting, opponent_hint, deadline_seconds)
+        return Decision(
+            move_type, direction, hint, verdict,
+            fallback=(move_type is MoveType.HOLD and direction is None),
+            reasoning=reasoning, prompt_text=prompt,
+            response_seconds=round(time.perf_counter() - started, 2),
+        )
 
-    def _ask(self, prompt: str, deadline: float | None) -> str:
-        if deadline is None:
-            return self._llm.send(prompt)
-        executor = ThreadPoolExecutor(max_workers=1)
-        try:
-            return executor.submit(self._llm.send, prompt).result(timeout=deadline)
-        finally:  # abandoned call finishes in background and is discarded
-            executor.shutdown(wait=False, cancel_futures=True)
-
-    def _random_move(self, state: OwnGameState) -> Decision:
+    def _decide_move(self, state: OwnGameState, belief: BeliefGrid,
+                     barriers_max: int) -> tuple[MoveType, Direction | None]:
+        """Choose this turn's move. Base policy: step per `_pick_move`, else HOLD."""
         moves = state.board.legal_moves(state.position, state.barriers)
         if not moves:
-            return Decision(MoveType.HOLD, None, FALLBACK_HINT, VERDICT_TRUTH,
-                            random_move=True)
-        direction, _ = self._rng.choice(moves)
-        return Decision(MoveType.MOVE, direction, FALLBACK_HINT, VERDICT_TRUTH,
-                        random_move=True)
-
-    def _parse(self, reply: str, state: OwnGameState, barriers_max: int) -> Decision | None:
-        try:
-            data = json.loads(reply)
-            move_type = MoveType(data["move"]["type"])
-            direction = Direction(data["move"]["dir"]) if data["move"].get("dir") else None
-            hint = str(data["message"]).strip()
-            verdict = str(data.get("verdict", VERDICT_TRUTH))
-            reasoning = str(data.get("reasoning", "")).strip()
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
-            return None
-        if not hint or not self._is_legal(move_type, direction, state, barriers_max):
-            return None
-        return Decision(move_type, direction, hint, verdict, reasoning=reasoning)
-
-    def _is_legal(self, move_type: MoveType, direction: Direction | None,
-                  state: OwnGameState, barriers_max: int) -> bool:
-        if move_type is MoveType.HOLD:
-            return True
-        if direction is None:
-            return False
-        if move_type is MoveType.BARRIER:
-            return (
-                self.role is Role.POLICE
-                and state.my_barriers < barriers_max
-                and state.board.step(state.position, direction, state.barriers) is not None
-            )
-        return state.board.step(state.position, direction, state.barriers) is not None
-
-    def _fallback(self, state: OwnGameState, belief: BeliefGrid) -> Decision:
-        moves = state.board.legal_moves(state.position, state.barriers)
-        if not moves:
-            return Decision(MoveType.HOLD, None, self._fallback_hint(), VERDICT_TRUTH, True)
+            return MoveType.HOLD, None
         direction, _ = self._pick_move(moves, state, belief)
-        return Decision(MoveType.MOVE, direction, self._fallback_hint(), VERDICT_TRUTH, True)
+        return MoveType.MOVE, direction
 
     def _pick_move(self, moves, state, belief):
         raise NotImplementedError
-
-    def _fallback_hint(self) -> str:
-        return FALLBACK_HINT
 
 
 class ThiefBrain(BrainBase):
     """Evade: maximize distance from the believed cop cell, prefer unvisited."""
 
     role = Role.THIEF
-    prompt_builder = staticmethod(prompts.thief_prompt)
 
     def _pick_move(self, moves, state, belief):
         threat = belief.most_likely()
@@ -151,10 +97,21 @@ class ThiefBrain(BrainBase):
 
 
 class PoliceBrain(BrainBase):
-    """Chase: minimize distance to the believed thief cell."""
+    """Chase: minimize distance to the believed thief cell; occasionally wall."""
 
     role = Role.POLICE
-    prompt_builder = staticmethod(prompts.police_prompt)
+    barrier_chance = 0.15  # basic default barrier rate; students can improve this
+
+    def _decide_move(self, state, belief, barriers_max):
+        moves = state.board.legal_moves(state.position, state.barriers)
+        if not moves:
+            return MoveType.HOLD, None
+        direction, _ = self._pick_move(moves, state, belief)
+        # BARRIER is a police-only book mechanic. This basic default sometimes walls
+        # the cell it would step onto instead of moving; students improve placement.
+        if state.my_barriers < barriers_max and self._rng.random() < self.barrier_chance:
+            return MoveType.BARRIER, direction
+        return MoveType.MOVE, direction
 
     def _pick_move(self, moves, state, belief):
         target = belief.most_likely()

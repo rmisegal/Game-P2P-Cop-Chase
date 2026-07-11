@@ -61,11 +61,11 @@ class TestResolveDefaults:
     def test_none_config_returns_shipped_brains(self):
         assert resolve_brain_cls(None, Role.THIEF) is ThiefBrain
 
-    def test_default_fallback_behaviour_unchanged(self):
+    def test_default_move_behaviour_unchanged(self):
         state, belief = _state_belief()
         brain = resolve_brain(Cfg({}), Role.THIEF, GarbageLlm())
-        reference = ThiefBrain(GarbageLlm())._fallback(state, belief)
-        assert brain._fallback(state, belief).direction == reference.direction
+        reference = ThiefBrain(GarbageLlm())._decide_move(state, belief, 20)
+        assert brain._decide_move(state, belief, 20)[1] == reference[1]
 
 
 class TestResolveSelector:
@@ -112,17 +112,15 @@ class TestResolveSelector:
 
 
 class TestCustomPickMoveChangesMove:
-    def test_override_changes_fallback_move(self):
+    def test_override_changes_move(self):
         state, belief = _state_belief()
-        default_dir = ThiefBrain(GarbageLlm())._fallback(state, belief).direction
-        custom = SpyThiefBrain(GarbageLlm())
-        custom_dir = custom._fallback(state, belief).direction
+        default_dir = ThiefBrain(GarbageLlm())._decide_move(state, belief, 20)[1]
+        custom_dir = SpyThiefBrain(GarbageLlm())._decide_move(state, belief, 20)[1]
         # min-distance policy picks a different direction than the max-distance default
         assert custom_dir != default_dir
 
     def test_decision_is_a_dataclass_with_the_contract(self):
         state, belief = _state_belief()
-        decision = SpyThiefBrain(GarbageLlm())._fallback(state, belief)
+        decision = SpyThiefBrain(GarbageLlm()).decide(state, belief, "hi", "New York", 20)
         assert isinstance(decision, Decision)
         assert issubclass(SpyThiefBrain, BrainBase)
-        assert decision.fallback is True

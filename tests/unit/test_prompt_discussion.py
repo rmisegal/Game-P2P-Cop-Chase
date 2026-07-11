@@ -1,11 +1,12 @@
-"""prompt_discussion capture: reasoning parsed from the reply and sealed into the
-step payload (audit-covered), plus intent/state fields (WS6)."""
+"""prompt_discussion capture: the trash-talk provider yields the hint + reasoning,
+and it is sealed (audit-covered) into the step payload with state + intent (WS6)."""
 
 from police_thief.constants import Direction, MoveType, Role
-from police_thief.domain.brains import Decision, ThiefBrain
+from police_thief.domain.brains import Decision
 from police_thief.domain.crypto import audit_records
 from police_thief.domain.own_state import OwnGameState
 from police_thief.peer.sealing import sealed_step_record
+from police_thief.strategy.trash_talk import LlmTrashTalk, TrashTalk
 
 
 def _state():
@@ -14,22 +15,20 @@ def _state():
     return st
 
 
-class TestReasoningParse:
-    def test_parse_extracts_reasoning(self):
-        reply = (
-            '{"message": "near times square", "move": {"type": "HOLD"}, '
-            '"verdict": "lie", "reasoning": "bluff north to pull the cop"}'
-        )
-        decision = ThiefBrain(llm=None)._parse(reply, _state(), barriers_max=20)
-        assert decision is not None
-        assert decision.reasoning == "bluff north to pull the cop"
-        assert decision.verdict == "lie"
+class TestReasoningCapture:
+    def test_llm_trash_talk_yields_reasoning_and_prompt(self):
+        reply = '{"message": "near soho", "verdict": "lie", "reasoning": "bluff north"}'
+        hint, verdict, reasoning, prompt = LlmTrashTalk(lambda p, d=None: reply).say(
+            Role.THIEF, None, None, "London", "hi")
+        assert hint == "near soho"
+        assert verdict == "lie"
+        assert reasoning == "bluff north"
+        assert prompt  # captured for the sealed log
 
-    def test_missing_reasoning_defaults_empty(self):
-        reply = '{"message": "near soho", "move": {"type": "HOLD"}, "verdict": "truth"}'
-        decision = ThiefBrain(llm=None)._parse(reply, _state(), barriers_max=20)
-        assert decision is not None
-        assert decision.reasoning == ""
+    def test_template_reasoning_and_prompt_are_empty(self):
+        hint, verdict, reasoning, prompt = TrashTalk().say(
+            Role.THIEF, None, None, "London", "hi")
+        assert hint and reasoning == "" and prompt == ""
 
 
 class TestSealedPromptDiscussion:

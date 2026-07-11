@@ -1,20 +1,22 @@
 # Copyright (c) 2026 Dr. Yoram Segal / Gal Technologies Artificial Intelligence Ltd. (GTAI).
 # All rights reserved. Educational Use EULA - see LICENSE. Contact: segal@gal-tech.ai
-"""Strategy seam — the student's mission: REPLACE the decision policy.
+"""Strategy seam — the student's mission: REPLACE the move policy (pure Python).
 
-Students extend the shipped brains and override either hook:
-  * `_pick_move(moves, state, belief)` — the deterministic heuristic (fallback
-    policy) that picks a legal move; and/or
-  * `prompt_builder` — the text prompt sent to the LLM.
+The MOVE is chosen entirely by the Python strategy — the LLM is NEVER consulted
+for it. Students extend the shipped brains and override either hook:
+  * `_pick_move(moves, state, belief)` — pick a legal move (the core heuristic); and/or
+  * `_decide_move(state, belief, barriers_max)` — full move choice incl. BARRIER (police).
 Or they write a full policy by subclassing `ThiefBrain` / `PoliceBrain`.
+
+The LLM (if enabled at all) only writes optional *trash-talk* banter — see
+`strategy/trash_talk.py`; the shipped default is a zero-token template.
 
 This package re-exports the base classes to extend (`BrainBase`, `ThiefBrain`,
 `PoliceBrain`, `Decision`) and provides `resolve_brain`, the factory
-`PeerRuntime` uses to pick the brain class. It honours an OPTIONAL config
-selector (`strategy.thief_class` / `strategy.police_class`, a dotted
-``"package.module:ClassName"``) and otherwise falls back to the shipped
-heuristic brains — so with no selector the behaviour is byte-identical to the
-default simulator. See `docs/STRATEGY.md` for the full guide + a worked example.
+`PeerRuntime` uses. It honours an OPTIONAL config selector
+(`strategy.thief_class` / `strategy.police_class`, a dotted
+``"package.module:ClassName"``) and otherwise uses the shipped heuristic brains.
+See `docs/STRATEGY.md` for the full guide + a worked example.
 """
 
 import importlib
@@ -22,10 +24,11 @@ import random
 
 from police_thief.constants import Role
 from police_thief.domain.brains import BrainBase, Decision, PoliceBrain, ThiefBrain
+from police_thief.strategy.talk_providers import resolve_trash_talk
 
 __all__ = [
     "BrainBase", "Decision", "PoliceBrain", "ThiefBrain",
-    "load_brain_cls", "resolve_brain", "resolve_brain_cls",
+    "load_brain_cls", "resolve_brain", "resolve_brain_cls", "resolve_trash_talk",
 ]
 
 _DEFAULTS: dict[Role, type[BrainBase]] = {Role.THIEF: ThiefBrain, Role.POLICE: PoliceBrain}
@@ -66,8 +69,12 @@ def resolve_brain_cls(config, role: Role) -> type[BrainBase]:
 
 
 def resolve_brain(config, role: Role, llm, rng: random.Random | None = None) -> BrainBase:
-    """Instantiate the resolved brain for `role`.
+    """Instantiate the resolved brain for `role`, wired with the configured
+    trash-talk provider (default: the free `template`).
 
-    With no `[strategy]` selector this is exactly the shipped heuristic brain,
-    preserving the default simulator's behaviour."""
-    return resolve_brain_cls(config, role)(llm, rng=rng)
+    With no `[strategy]` selector this is the shipped heuristic brain; with no
+    `[trash_talk]` block the banter is zero-token template — so the shipped game
+    runs fast and offline."""
+    rng = rng or random.Random()
+    trash = resolve_trash_talk(config, rng, llm)
+    return resolve_brain_cls(config, role)(llm, rng=rng, trash=trash)

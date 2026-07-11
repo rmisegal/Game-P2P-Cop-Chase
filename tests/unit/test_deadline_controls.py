@@ -1,4 +1,4 @@
-"""Tests for step-deadline enforcement, short prompts, and game controls."""
+"""Tests: the move is instant (never waits on the LLM), plus game controls."""
 
 import threading
 import time
@@ -8,19 +8,6 @@ from police_thief.domain.belief import BeliefGrid
 from police_thief.domain.brains import ThiefBrain
 from police_thief.domain.own_state import OwnGameState
 from police_thief.peer.controls import GameControls
-
-
-class SlowLlm:
-    """Never answers within a tight deadline."""
-
-    def __init__(self, delay=1.0):
-        self.delay = delay
-        self.prompts = []
-
-    def send(self, prompt):
-        self.prompts.append(prompt)
-        time.sleep(self.delay)
-        return "too late anyway"
 
 
 def view():
@@ -33,30 +20,18 @@ def view():
     }
 
 
-class TestDeadline:
-    def test_missed_deadline_moves_randomly(self):
-        brain = ThiefBrain(SlowLlm(delay=1.0))
-        decision = brain.decide(**view(), deadline_seconds=0.05)
-        assert decision.random_move is True
+class TestMoveIsInstant:
+    def test_move_does_not_wait_on_the_llm(self):
+        # A slow/exploding LLM must not affect the move: the default trash provider
+        # is template (no LLM), and the move is chosen in pure Python regardless.
+        class SlowBoomLlm:
+            def send(self, prompt):
+                time.sleep(5)  # would blow any deadline — but it's never called
+                raise AssertionError("LLM must not be consulted for the move")
+
+        decision = ThiefBrain(SlowBoomLlm()).decide(**view(), deadline_seconds=0.05)
         assert decision.move_type in (MoveType.MOVE, MoveType.HOLD)
-        assert decision.response_seconds < 0.5  # enforced, did NOT wait for the LLM
-
-    def test_short_deadline_uses_compact_prompt(self):
-        llm = SlowLlm(delay=0.0)
-        brain = ThiefBrain(llm)
-        brain.decide(**view(), deadline_seconds=5, short_threshold=10)  # 5 < 10 -> short
-        short_prompt = llm.prompts[-1]
-        brain.decide(**view(), deadline_seconds=60, short_threshold=10)  # 60 > 10 -> full
-        full_prompt = llm.prompts[-1]
-        assert len(short_prompt) < len(full_prompt)
-        assert "Evade the cop" not in short_prompt
-        assert "Evade the cop" in full_prompt
-
-    def test_no_deadline_waits_for_llm(self):
-        brain = ThiefBrain(SlowLlm(delay=0.1))
-        decision = brain.decide(**view())
-        assert decision.random_move is False
-        assert decision.response_seconds >= 0.1
+        assert decision.response_seconds < 0.5  # did NOT wait for any LLM
 
 
 class TestGameControls:

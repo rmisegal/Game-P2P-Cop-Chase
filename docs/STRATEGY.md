@@ -17,20 +17,29 @@ from police_thief.strategy import (
 )
 ```
 
-## The two hooks you can override
+## Fast by default: the move is Python, the LLM is only banter
 
-A brain is asked to choose an action every turn via `BrainBase.decide(...)`, which
-(a) builds a prompt, (b) asks the LLM, (c) parses/validates the reply, and (d) on
-any illegal or unusable answer, **falls back to a deterministic policy**. Two clean
-override points sit inside that flow — override **either or both**:
+**The MOVE is chosen entirely in Python — the LLM is NEVER consulted for it.** Each
+turn, `BrainBase.decide(...)` (1) picks the move with your Python policy
+(`_decide_move` → `_pick_move`), then (2) generates the *trash-talk hint* with a
+**trash-talk provider**. The shipped provider is a zero-token **template** (canned
+Python lines), so the game runs **fast, free, and offline** by default — and the
+only way to win is a better **algorithm**, not a bigger model.
 
-### 1. `_pick_move(moves, state, belief)` — the heuristic hook
+That means your grade rides on the Python you write here, and a slow or missing LLM
+can never stall or change your move. LLM banter is strictly optional (see
+[Trash talk](#trash-talk-optional-llm-banter)).
 
-This is the deterministic fallback policy: given the **legal** moves for this turn,
-your own `state`, and your `belief` heatmap of where the opponent probably is,
-return the `(direction, cell)` tuple you want to play. It runs whenever the LLM is
-skipped, times out, or returns something illegal — so a strong `_pick_move` makes
-your agent robust even when the model misbehaves.
+## The move hooks you override
+
+Override **either or both**:
+
+### 1. `_pick_move(moves, state, belief)` — the core move policy
+
+Given the **legal** moves for this turn, your own `state`, and your `belief` heatmap
+of where the opponent probably is, return the `(direction, cell)` tuple you want to
+play. This IS the move (not a fallback) — a strong `_pick_move` is the heart of a
+strong agent.
 
 - `moves` — a list of `(Direction, (row, col))` legal moves (already filtered for
   the board edges and barriers, per the negotiated `move_set`).
@@ -54,20 +63,44 @@ class PoliceBrain(BrainBase):         # chase: minimise distance to the belief p
         return min(moves, key=lambda m: state.board.distance(m[1], target))
 ```
 
-### 2. `prompt_builder` — the LLM prompt hook
+### 2. `_decide_move(state, belief, barriers_max)` — full move control (incl. BARRIER)
 
-`prompt_builder` is a static callable that turns your view into the text prompt sent
-to the model. Override it to give the LLM better situational framing, few-shot
-examples, or a tighter reasoning contract. It **must keep the JSON reply contract**
-(see below) so the parser accepts the answer; otherwise `decide` silently falls
-back to `_pick_move`.
+`_pick_move` returns a single step; `_decide_move` returns the whole move —
+`(MoveType, Direction | None)` — so this is where you decide **BARRIER vs MOVE vs
+HOLD**. The base policy just steps per `_pick_move`; the shipped `PoliceBrain`
+overrides it to *occasionally* wall a cell (a basic default you should improve):
 
 ```python
-from police_thief.domain import prompts
-
-class MyThiefBrain(ThiefBrain):
-    prompt_builder = staticmethod(prompts.thief_prompt)  # or your own builder
+class PoliceBrain(BrainBase):
+    barrier_chance = 0.15   # basic default; tune or replace the whole policy
+    def _decide_move(self, state, belief, barriers_max):
+        moves = state.board.legal_moves(state.position, state.barriers)
+        if not moves:
+            return MoveType.HOLD, None
+        direction, _ = self._pick_move(moves, state, belief)
+        if state.my_barriers < barriers_max and self._rng.random() < self.barrier_chance:
+            return MoveType.BARRIER, direction   # wall instead of stepping
+        return MoveType.MOVE, direction
 ```
+
+## Trash talk (optional LLM banter)
+
+The `message`/hint each agent sends is produced by a **trash-talk provider**, chosen
+in the private per-peer `[trash_talk]` config block. The MOVE is unaffected by this —
+it only changes *who writes the banter*:
+
+| `provider` | Cost / speed | Notes |
+|---|---|---|
+| `template` (**default**) | 0 tokens, instant, offline | Canned Python lines; ships as the default. |
+| `ollama` | free, local, no RPM | A small local model via Ollama (`ollama_url`, `model`). |
+| `claude_api` | ~200 tokens/call | Small Anthropic model (default `claude-haiku-4-5`); needs `anthropic` + a key/login. |
+| `claude_cli` | expensive | Reuses this peer's `claude -p` — still pays the full Claude Code system-prompt overhead. |
+
+`every_n_steps = N` calls the LLM only every Nth turn (template on the rest). Any LLM
+error or deadline miss falls back to the template, so banter never stalls the game.
+The hint + `verdict` (truth/lie) are still sealed and audited exactly as before —
+only the *source* of the sentence changes. Write a custom template by subclassing
+`police_thief.strategy.trash_talk.TrashTalk` and overriding `_template`.
 
 ## Worked example — a custom ThiefBrain
 
@@ -131,17 +164,16 @@ Whatever route you take, every turn must yield a `Decision`:
 | `verdict`     | `"truth"` or `"lie"` — your self-declared honesty for this hint.  |
 | `reasoning`   | a one-line rationale, logged for audit (**prompt_discussion**).   |
 
-If you override `prompt_builder`, the model's reply must still parse to
-`{"message", "move": {"type","dir"}, "verdict", "reasoning"}`. Illegal moves and
-unparseable replies are rejected and routed to your `_pick_move` fallback — the loop
-never stalls.
+`move_type`/`direction` come from your Python policy; `hint`/`verdict`/`reasoning`
+come from the trash-talk provider (template by default). If you enable an LLM
+provider, its reply must parse to `{"message", "verdict", "reasoning"}` — any bad or
+slow reply falls back to the template, so the loop never stalls.
 
 ## What is logged / audited
 
-Every sealed step records the exact `llm_prompt` sent and the model's `reasoning`
-inside a `prompt_discussion` block (plus state, intent/verdict, tokens, response
-time, and whether the move was random due to a missed deadline). These are hashed
-into the per-step commit chain and re-verified by the mutual post-game audit, and
-they surface in the emitted `log_<game_id>_g<NN>.json` artifact. Your strategy is
-free to bluff in `hint`/`verdict`, but the prompt and reasoning behind each move are
-permanently on the record — design accordingly.
+Every sealed step records the trash-talk `llm_prompt` sent (empty for the template
+provider) and the `reasoning` inside a `prompt_discussion` block (plus state,
+intent/verdict, tokens, response time). These are hashed into the per-step commit
+chain and re-verified by the mutual post-game audit, and they surface in the emitted
+`log_<game_id>_g<NN>.json` artifact. Your strategy is free to bluff in
+`hint`/`verdict`, but everything is permanently on the record — design accordingly.

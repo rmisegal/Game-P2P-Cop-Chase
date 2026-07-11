@@ -44,6 +44,21 @@ smell_trust_weight = 4.0        # my private tuning (not a signed term)
 # thief_class  = "my_team.strategy:MyThiefBrain"
 # police_class = "my_team.strategy:MyPoliceBrain"
 
+# [trash_talk]  --  HOW the banter/hint is generated. The MOVE is ALWAYS pure Python;
+# this only writes the taunt. Default (this block absent) = "template": canned Python
+# lines, ZERO tokens, instant, offline — the game is fast and free, and students
+# compete on the ALGORITHM, not on prompting a big model. Opt in for LLM banter only
+# if you want it (see docs/STRATEGY.md). Providers:
+#   template   = no LLM, no tokens, no network (default)
+#   claude_api = a small Anthropic model (needs `anthropic` + API key/login)
+#   ollama     = a local model via Ollama (free, no RPM limit)
+#   claude_cli = reuse this peer's `claude -p` (expensive: full Claude Code overhead)
+# [trash_talk]
+# provider      = "template"
+# model         = "claude-haiku-4-5"   # claude_api model, or an Ollama tag e.g. "llama3.2"
+# every_n_steps = 1                    # call the LLM only every Nth turn (template otherwise)
+# ollama_url    = "http://localhost:11434/api/generate"
+
 [gui]
 cell_px = 52
 
