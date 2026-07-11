@@ -1,291 +1,243 @@
 # Police-vs-Thief: Fully Distributed AI Pursuit Simulation
 
 <!-- VERSIONS: auto-synced by scripts/sync_versions.py via the pre-commit hook. Do not edit the values between the markers by hand. -->
-> <!--CODE_VERSION_START-->**Code `v1.12`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.36`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
+> <!--CODE_VERSION_START-->**Code `v2.0`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.36`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
 >
-> These two versions are **deep-linked**: the book's cover and its reference appendix display this code version (read at LaTeX compile time), and this line is refreshed from the book on every `git commit` (pre-commit hook). This code implements a **minimal subset** of that book.
+> These two versions are **deep-linked**: the book's cover and its reference appendix display this code version (read at LaTeX compile time), and this line is refreshed from the book on every `git commit` (pre-commit hook).
 
-Final-project simulation for Dr. Segal's "AI Agent Orchestration"
-course: two **standalone AI agent peers** (Police and Thief) chase each other on a
-configurable grid (currently **7×7**) — **no central server, no shared state, no
-referee**. Each peer is a fully independent process, like two students playing over
-the internet from two different PCs: its own FastMCP server, its own config, its own
-`claude -p` brain (CLI browser login, never an API key), its own LLM model choice,
-and its own Tkinter GUI. The entire game's integrity rests on **per-step SHA-256
-commit-reveal sealing** verified by a mutual post-game audit.
+Final-project reference simulation for Dr. Segal's **"AI Agent Orchestration"** course:
+two **standalone AI agent peers** (Police and Thief) chase each other on a configurable
+grid (**7×7** by default) — **no central server, no shared state, no referee**. Each
+peer is a fully independent process, like two students playing over the internet from
+two different PCs: its own FastMCP server on its own localhost port, its own config, its
+own Tkinter GUI. The entire game's integrity rests on **per-step SHA-256 commit-reveal
+sealing** verified by a mutual post-game audit.
 
 > ### 📚 What this repo is — read this first
 >
-> This is the **public reference example** for the final project, described in the course
-> guidelines book (appendix *"מאגר הקוד לדוגמה"*). Repository:
-> **<https://github.com/rmisegal/Game-P2P-Cop-Chase>**
+> This is the **public reference example** for the final project (guidelines-book appendix
+> *"מאגר הקוד לדוגמה"*). Repository: **<https://github.com/rmisegal/Game-P2P-Cop-Chase>**
 >
-> It demonstrates the **basic game flow and a simple GUI, without strategy** — a **learning
-> aid, not a submission skeleton**. It **intentionally does _not_ meet the full project
-> specification**: there is **no point scoring**, movement uses **8-direction king moves**
-> (the book mandates 4 orthogonal), capture-by-barrier and boxed-in capture are not
-> implemented, and there is **no explicit state machine / watchdog**. **Do not start your
-> submission from this repo.**
+> The **engine now matches the book's mechanics** — 4-orthogonal movement, per-group
+> scoring + tie rule, police barriers, the pre-game hardware declaration, the mutual
+> commit-reveal audit, an N-sub-game series, and the four standardized JSON artifacts.
+> What it deliberately ships **basic** is the one thing that is *your* job: the **strategy**.
+> The bundled move policy is a simple greedy heuristic and the banter is a canned template.
 >
-> You _may_ reuse or modify parts of the code, and use it to learn how a specific piece is
-> implemented or to clarify anything left unclear in the book — but your **graded solution
-> must meet the full specification on its own**. Where this repo differs from the book, the
-> **book and its binding parameter table win**.
+> It is a **learning aid, not a submission skeleton.** You may read it to understand how a
+> piece is implemented and reuse parts, but your **graded solution must implement your own
+> strategy and meet the full specification on its own**. Where this repo differs from the
+> book, the **book and its binding parameter table win**.
 >
-> **Tip — query the code with NotebookLM:** export all repo files to `.txt`, load them into
-> [NotebookLM](https://notebooklm.google.com), and ask questions about the code as if you had
-> a dedicated chatbot for the simulation — e.g. *"where is the belief map computed?"* or
-> *"how is the commit-reveal protocol enforced?"*.
+> **Tip — query the code with NotebookLM:** export the repo files to `.txt`, load them into
+> [NotebookLM](https://notebooklm.google.com), and ask questions like *"where is the belief
+> map computed?"* or *"how is commit-reveal enforced?"*.
 
-## Core idea
+## The one big idea: the MOVE is Python, the LLM is only banter
+
+**The move is chosen entirely by a pure-Python strategy — the LLM is never consulted for
+it.** Each turn a peer (1) picks its move with the Python policy, then (2) writes an
+optional *trash-talk hint*. The shipped hint provider is a **zero-token template**, so the
+game is **fast, free, and offline by default** — and the only way to win is a better
+**algorithm**, not a bigger model. LLM banter is strictly opt-in (see
+[Trash talk](#trash-talk-provider-optional)). This is the heart of the assignment:
+**upgrade the strategy** ([`docs/STRATEGY.md`](docs/STRATEGY.md)).
 
 Each agent only ever knows:
 1. Its **own** true position, visited cells and barrier quota.
 2. The opponent's **free natural-language hints** (which may lie).
 3. The opponent's **5×5 smell grids** (decaying 0.1/step) — fused into a belief heatmap.
 4. The opponent's **sealed commits**: `SHA256(state|move|verdict|nonce)` sent every step,
-   with nonces revealed only at the end-of-game audit. Nothing can be rewritten after the
-   fact; a false capture answer or win claim is cryptographically caught and forfeits.
+   nonces revealed only at the audit. A false capture answer or win claim is
+   cryptographically caught and forfeits (`tamper_forfeit`).
 
-Capture protocol (no referee): the cop lands on a cell and sends a `capture_claim`; the
-thief must answer honestly (the audit would expose a lie). The thief wins by surviving
-`max_steps` (default 50) steps without being caught. A silent opponent past
-`turn_timeout_seconds` is a technical loss.
-
-Every sealed step payload records the **LLM model, token usage (delta-accounted:
-a step that never called the LLM seals 0 tokens), response time, and whether the move
-was random due to a missed deadline**. Each peer also seals a step-0 **host system
-spec** record (CPU type/cores/frequency, RAM, GPU/VRAM, OS) plus its group name and
-sub-game number — the book's §6 mandatory declaration, audit-verified like every move.
+Capture (no referee): the cop lands on a cell and sends a `capture_claim`; the thief must
+answer honestly (the audit would expose a lie). The thief wins by **surviving
+`survival_threshold` steps** without being caught. A silent opponent past
+`turn_timeout_seconds` is a technical loss. Movement is **4-orthogonal + STAY** by default
+(config-driven; king moves remain available). Each peer also seals a step-0 **host system
+spec** (CPU, RAM, GPU/VRAM, OS) — the book's mandatory pre-game declaration.
 
 ## Requirements
 
-- Python 3.13+, [uv](https://docs.astral.sh/uv/), Claude CLI logged in via browser
-  (`npm i -g @anthropic-ai/claude-code`, then run `claude` once). No API key — the
-  provider strips `ANTHROPIC_API_KEY` etc. so the CLI always uses your subscription login.
+- **Python 3.13+**, [uv](https://docs.astral.sh/uv/).
+- **Nothing else for the default (template) game** — it runs fully offline with no LLM.
+- Only if you opt into LLM banter: the Claude CLI logged in (`claude_cli`), the `anthropic`
+  package + a key/login (`claude_api`), or a running [Ollama](https://ollama.com) (`ollama`).
 
 ## Install
 
 ```powershell
-cd simulation
 uv sync
 ```
 
 ## Play (two terminals — like two students over the internet)
 
-```powershell
-# Terminal 1
-uv run python -m police_thief peer --role police
-
-# Terminal 2
-uv run python -m police_thief peer --role thief
-```
-
-Each peer automatically loads **its own config directory** (`config/police/`,
-`config/thief/`) — two setups, optionally two different LLM models. The peers
-negotiate the game agreement (mutual SHA-256 signatures over board size, smell size,
-rules, start positions, setting) before the thief's first move; a mismatch refuses to
-play. Everything then runs fully autonomously.
-
-**Headless / dry run** (no GUI, no `claude -p` — a deterministic stub policy, ideal
-for CI and end-to-end checks):
+Headless, deterministic, **no LLM** (the default template banter) — the fast way to try it:
 
 ```powershell
 uv run python -m police_thief peer --role police --stub-llm --no-gui   # Terminal 1
 uv run python -m police_thief peer --role thief  --stub-llm --no-gui   # Terminal 2
 ```
 
-Both peers write the four JSON artifacts (below) into `logs/`; a real localhost stub
+With the Tkinter GUI (one window per peer):
+
+```powershell
+uv run python -m police_thief peer --role police   # Terminal 1
+uv run python -m police_thief peer --role thief    # Terminal 2
+```
+
+Each peer auto-loads **its own config directory** (`config/police/`, `config/thief/`). The
+peers negotiate the game agreement (mutual SHA-256 signatures over the shared game terms)
+and agree a shared `game_id`/`game_uid` before the thief's first move; a mismatch refuses
+to play. Both peers write the four JSON artifacts (below) into `logs/`; a real localhost
 run is checked in at [`docs/sample-run/`](docs/sample-run/).
+
+> **Start order doesn't matter** — whoever comes up first retries until the other's server
+> is ready. Ports are `8801` (thief) / `8802` (police) on `127.0.0.1`.
 
 ## Multi-game series & the four JSON artifacts
 
-A single invocation plays a **series** of `num_games` sub-games and then stops. The
-shipped default is **`num_games = 1`**; the guidelines **book mandates 6**. Set it in
-the shared, signed `config/<role>/game.json` under
+A single invocation plays a **series** of `num_games` sub-games and then stops. The shipped
+default is **`num_games = 1`** (one sub-game = a full example game); the guidelines **book
+mandates 6**. Set it in the shared, signed `config/<role>/game.json` under
 `network_and_league.num_games` (both peers must hold a byte-identical copy).
 
 **Role alternation** — across the series a peer plays its config-natural role on odd
-sub-games and the **opposite** role on even ones, so the two peers always stay
-consistent (when A is cop, B is thief). Scores are tracked **per group**, aggregated
-over the series, with a `tie_score` on an equal series.
+sub-games and the **opposite** role on even ones, so the peers stay consistent (when A is
+cop, B is thief). Scores are per group, aggregated over the series, with a `tie_score` on
+an equal series.
 
-Every series emits **four standardized JSON files** into `logs/`, all named from the
-shared human `game_id` and all carrying one shared `game_uid` (a `uuid4` agreed in the
-handshake) that stitches them together (book Appendix F):
+Every series emits **four standardized JSON files** into `logs/`, named from the shared
+human `game_id` and all carrying one shared `game_uid` (agreed in the handshake) that
+stitches them together (book Appendix F):
 
 | File | What it is |
 |------|------------|
 | `declaration_<game_id>.json` | **Pre-game declaration** — both groups' identity (members, repos, MCP servers), per-group hardware spec + signature, timezone, token budget, `num_games`. Written once. |
 | `config_<game_id>_g<NN>.json` | The **agreed game config** actually played for sub-game `NN`, plus its `config_sha256`. One per sub-game. |
-| `log_<game_id>_g<NN>.json` | The **full sealed game log** for sub-game `NN`: every commit-revealed step (state, move, verdict, `prompt_discussion`), the summary, and the mutual audit result. One per sub-game (each peer writes its own). |
+| `log_<game_id>_g<NN>.json` | The **full sealed game log** for sub-game `NN`: every commit-revealed step (state, move, verdict, `prompt_discussion`), the summary, and the mutual audit result. One per sub-game. |
 | `result_<game_id>.json` | The **aggregated final result**: per-sub-game rows, per-group total scores, series winner/tie, and the mutual-agreement signature. Written once. |
 
 ## Strategy — upgrade the brain (the student's mission)
 
-The shipped decision policy is deliberately simple; replacing it is the assignment.
-The brain is **injectable**: point `[strategy] thief_class` / `police_class` in your
+The bundled move policy is deliberately simple; replacing it is the assignment. It is
+**pure Python and injectable** — point `[strategy] thief_class` / `police_class` in your
 private `config/<role>/game.toml` at your own `BrainBase` subclass
-(`"package.module:ClassName"`), or override the `_pick_move(...)` heuristic hook
-and/or the `prompt_builder` LLM-prompt hook. Left unset (as shipped), the default
-heuristic is used. **See [`docs/STRATEGY.md`](docs/STRATEGY.md)** for the exact seam,
-the `Decision` contract, and a worked example.
+(`"package.module:ClassName"`), or override `_pick_move(...)` (the core move) and/or
+`_decide_move(...)` (full move incl. police BARRIER). Unset (as shipped) uses the default
+heuristic. Full guide, the `Decision` contract, and a worked example:
+**[`docs/STRATEGY.md`](docs/STRATEGY.md)**.
 
-### The GUI (one per peer)
+### Trash talk provider (optional)
 
-- **Title bar**: `<group name> | sub-game <n> | <ROLE> | mm:ss` — live game timer
-  (starts at the signature exchange, freezes at game over).
-- **Board**: my TRUE position, visited trail, known barriers, and a red **belief
-  heatmap** of where the opponent probably is (their true position is unknowable).
-- **Green banner** = my turn: lights when the opponent's message arrives, goes gray
-  once my move is sealed and delivered.
-- **Panel**: step, model, tokens step/total (thousands-formatted, e.g. `1,123,456`),
-  **LLM response (s)** (with a `[RANDOM - deadline missed]` marker), barriers used /
-  quota, both hints, my truth/lie verdict, my sealed commit, status.
-- **Step time budget slider (0–60s)** — the ENFORCED total step time for MY agent:
-  the LLM gets at most this long to answer; a miss plays a **random legal move**
-  instantly, a fast answer is padded up to the budget. **0 = skip the LLM entirely**
-  (pure random, maximum speed, zero tokens). Budgets under
-  `short_prompt_threshold_seconds` automatically switch to a compact prompt so the
-  model can answer in time. Watch the response-time label to find the smallest budget
-  that avoids `[RANDOM]` moves.
-- **Pause / Play / Stop**: Pause holds only MY agent before it thinks (a pause longer
-  than the opponent's `turn_timeout_seconds` becomes its technical win, as in a real
-  distributed game). Stop cancels my game (`result: "stopped"`, audit skipped) and
-  closes the log session.
-- **About / System spec** button: code version, role, model, and the full host spec.
+The `message`/hint each agent sends is produced by a trash-talk provider, chosen in the
+private `[trash_talk]` block. The **move is unaffected** — this only changes *who writes the
+banter*:
 
-## Replay a match (mandatory visual player)
+| `provider` | Cost / speed | Notes |
+|---|---|---|
+| `template` (**default**) | 0 tokens, instant, offline | Canned Python lines. |
+| `ollama` | free, local, no RPM | A small local model via Ollama. |
+| `claude_api` | ~200 tokens/call | Small Anthropic model (default `claude-haiku-4-5`); needs `anthropic` + a key/login. |
+| `claude_cli` | expensive | Reuses this peer's `claude -p` (full Claude Code overhead). |
+
+`every_n_steps = N` calls the LLM only every Nth turn; any error/deadline miss falls back
+to the template. **Why this matters:** with the default, a sub-game costs ~0 tokens and has
+no RPM pressure; the old LLM-decides-every-move design cost ~2.4M tokens/sub-game.
+
+## Replay a match (visual player, live hash re-verification)
 
 ```powershell
-uv run python -m police_thief replay --log logs/police_match.json
+uv run python -m police_thief replay --log logs/log_<game_id>_g01.json
 ```
 
-Steps through the saved log with play/pause/step controls: hints, revealed truth/lie
-verdicts, smell-driven belief, barriers, model + tokens + response time per step, and
-a **live re-verification of every commit hash** (`verified OK` / `TAMPERED!`) plus the
-mutual audit outcome and the sealed system-spec declaration (About button).
+Steps through a saved log with play/pause/step controls: hints, revealed truth/lie
+verdicts, smell-driven belief, barriers, tokens + response time per step, and a **live
+re-verification of every commit hash** (`verified OK` / `TAMPERED!`) plus the mutual audit
+and the sealed system-spec declaration. Accepts **both** the standardized
+`log_<game_id>_gNN.json` and the legacy per-role `logs/{role}_match.json`.
 
-## Configuration — per-peer, total separation (config version 1.10)
+## Configuration — shared game terms + private per-peer settings
 
-Each agent has its **own complete config**: `config/<role>/game.toml` +
-`config/<role>/rate_limits.json`. Nothing is hardcoded. **Signed game terms** (must
-match the opponent, enforced cryptographically at negotiation) vs **private settings**
-(each peer's own business):
+Each peer holds three files under `config/<role>/`:
 
-| Key | Current | Signed term? | Meaning |
-|-----|---------|:---:|---------|
-| `game.group_name` | Segal-…-Team | – | my group identity (title bar, sealed log, report) |
-| `game.sub_game_number` | 1 | – | which sub-game of the series this run is |
-| `board.size` | **7** | ✔ | game grid N×N |
-| `smell.grid_size` | **5** | ✔ | smell grid M×M |
-| `smell.decay_per_step` | 0.10 | ✔ | smell decay per step |
-| `smell.emit_intensity` | 0.9 | – | intensity at my smell center |
-| `rules.max_steps` | 50 | ✔ | thief survives this many steps → thief wins |
-| `rules.barriers_max` | 20 | ✔ | cop's barrier quota |
-| `positions.thief_start` / `cop_start` | [3,3] / [5,3] | ✔ | start cells |
-| `play.setting` | "New York" | ✔ | scenery vocabulary for NL hints |
-| `play.step_speed_seconds` | 1.0 | – | replay pacing |
-| `llm.model` | claude-opus-4-8[1m] | – | MY model — opponent may differ |
-| `llm.step_deadline_seconds` | 30 | – | enforced LLM budget/step (slider initial) |
-| `llm.short_prompt_threshold_seconds` | 10 | – | below this budget → compact prompt |
-| `network.my_port` | 8801 / 8802 | – | MY MCP server port |
-| `network.opponent_url` | http://127.0.0.1:88xx/mcp | – | the ONLY thing I know about the opponent |
-| `network.turn_timeout_seconds` | 180 | – | silent opponent → technical result |
-| `belief.smell_trust_weight` | 4.0 | – | my private belief tuning |
-| `email.enabled` / `email.mode` | false / draft | – | report email safety switches |
+- **`game.json`** — the **shared, agreed, signed** game terms. **Both peers must hold a
+  byte-identical copy** (verified by the signature exchange). Book Appendix F schema:
+  `board_and_agents` (grid, start cells), `movement_and_barriers` (`move_set`, barriers,
+  moves, survival threshold), `scoring` (+`tie_score`), `pheromones`,
+  `network_and_league` (`num_games`, token budget), `rate_limiter_gatekeeper`.
+- **`game.toml`** — this peer's **private, local** settings: group identity (id, members,
+  repos, MCP servers), MCP port + opponent URL, GUI pacing, belief tuning, email, and the
+  optional `[strategy]` / `[trash_talk]` blocks. Overlays `game.json` for local-only keys.
+- **`rate_limits.json`** — per-service limits enforced by the `ApiGatekeeper` (FIFO queue
+  on overflow, retry on transient errors).
 
-Rate limits for all external calls (claude, email) live in each peer's own
-`config/<role>/rate_limits.json` and are enforced by the `ApiGatekeeper`
-(FIFO queue on overflow, retry on transient errors).
-
-## Token accounting
-
-The provider keeps a cumulative counter bumped only when a `claude -p` reply is
-actually parsed; each step seals the **delta** since the previous step. Random/skipped
-steps seal 0; a timed-out call whose reply lands later is charged to the step where it
-arrived. The sealed `tokens_total` therefore always equals real consumption — exactly
-what the book's 200k-token budget requires. The Hebrew report embeds the full
-declaration under `הצהרת_מפרט_מחשב_וטוקנים`.
-
-## Email report
-
-At game end each peer builds the official Hebrew JSON report (game-book §8 schema:
-group, sub-game number, start time, duration, verified step log, consensus SHA-256
-signature) and — when `email.enabled = true` — creates a **Gmail draft** to the
-lecturer via the global `gg:email` skill. Flip `email.mode = "send"` deliberately;
-the default never sends anything.
+Shipped defaults (in `game.json`): grid **7×7**, `move_set` `["N","S","E","W","STAY"]`,
+thief start `[3,3]`, cop start `[0,0]`, scoring `20/5/5/10`, `tie_score 2`, `num_games 1`.
 
 ## Architecture
 
 ```
 CLI / Tkinter GUI (LivePeerApp, ReplayApp, PeerWindow)   ← presentation only
         │
-   SimulationSdk                                         ← single business-logic entry point
+   SimulationSdk ── run_peer: N-sub-game series loop       ← single business-logic entry
         │
- PeerRuntime ── negotiate → turn loop → audit            ← one standalone agent
-   ├─ peer:   turn_handler, sealing, summary, controls (pause/play/stop + live speed)
-   ├─ domain: board, smell, belief, own_state, rules, crypto, negotiation, protocol,
-   │          brains (deadline-enforced, short prompts, random fallback)
-   ├─ infra:  ClaudeCliProvider (claude -p login, token metering),
-   │          McpTransport ↔ opponent's FastMCP server, email_sender
-   └─ shared: ConfigManager, ApiGatekeeper + RateLimiter, sysinfo, version
+ PeerRuntime ── negotiate → turn loop → audit             ← one standalone agent per sub-game
+   ├─ strategy: brains (move = Python), trash_talk (banter), resolve_brain factory
+   ├─ domain:   board (move_set), smell, belief, own_state, rules, scoring, crypto,
+   │            negotiation, game_ids, protocol
+   ├─ peer:     turn_handler, sealing, summary, handshake, turn_sender, controls
+   ├─ report:   artifacts (the 4 JSON builders), emit, report_writer
+   ├─ infra:    ClaudeCliProvider, McpTransport ↔ opponent FastMCP server, email_sender
+   └─ shared:   ConfigManager (JSON overlay), ApiGatekeeper + RateLimiter, sysinfo, version
 ```
 
 ## Development
 
 ```powershell
-uv run pytest tests/ -q                                  # full test suite
-uv run pytest tests/ --cov=src --cov-report=term-missing # coverage ≥ 85%
-uv run ruff check src/ tests/                            # zero violations
+uv run pytest -q                                         # full suite (193 tests)
+uv run pytest --cov=src --cov-report=term-missing        # coverage ≥ 85%
+uv run ruff check src tests                              # zero violations
 ```
 
-All Python files ≤ 150 code lines; TDD throughout; no secrets in source
-(`.env-example` documents the deliberate absence of API keys).
+All Python files ≤ 150 code lines; TDD throughout; no secrets in source.
 
 ## Troubleshooting
 
-**`[WinError 10048] only one usage of each socket address ... 8801/8802`**
-A previous peer process is still running and holding the port (e.g. a match that is
-still waiting out its `turn_timeout_seconds`, or a window closed mid-game). The peer
-now detects this at startup and refuses to start with this exact explanation. To fix:
+**`[WinError 10048] ... 8801/8802`** — a previous peer is still holding the port. The peer
+detects this at startup and refuses to start with a clear message. Fix:
 
 ```powershell
-# who is holding the port?
 Get-NetTCPConnection -LocalPort 8801 -State Listen | Select-Object OwningProcess
-# stop it
 Stop-Process -Id <PID>
 ```
 
-Alternatively change `network.my_port` in that peer's `config/<role>/game.toml`
-(and the matching `network.opponent_url` in the OTHER peer's config).
-
-**GUI shows `ERROR - see status`** — the status label carries the full reason
-(port conflict, missing Claude CLI login, unreachable opponent, bad config).
+Or change `network.my_port` in that peer's `game.toml` (and the matching
+`network.opponent_url` in the OTHER peer's config).
 
 ## Docs
 
-- `docs/PLAN.md` — the authoritative build plan (distributed architecture rationale).
-- `docs/STRATEGY.md` — how to upgrade the agent's brain (the injectable strategy seam).
-- `docs/sample-run/` — a real localhost stub series: the four emitted JSON artifacts,
-  all sharing one `game_uid`.
-- Game rules: `../manus-final-project-game-book-V3.md`; worked example:
-  `../5-step-game-simulation.md`.
+- [`docs/STRATEGY.md`](docs/STRATEGY.md) — upgrade the agent's brain (move policy + trash talk).
+- [`docs/UPGRADE-4JSON-PLAN.md`](docs/UPGRADE-4JSON-PLAN.md) / [`docs/UPGRADE-4JSON-TODO.md`](docs/UPGRADE-4JSON-TODO.md) — the upgrade plan + task list.
+- [`docs/PLAN.md`](docs/PLAN.md) — the original distributed-architecture build plan.
+- [`docs/sample-run/`](docs/sample-run/) — a real localhost run: the four emitted JSON artifacts, all sharing one `game_uid`.
+- [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf) — the full guidelines book (rules + binding parameter tables).
 
 ## License & Copyright
 
 **Copyright © 2026 Dr. Yoram Segal / Gal Technologies Artificial Intelligence Ltd. (GTAI).
 All rights reserved.**
 
-This Software is licensed under a restrictive **Educational Use EULA** — see the
-[LICENSE](LICENSE) file for the full, binding terms. In short:
+Licensed under a restrictive **Educational Use EULA** — see [LICENSE](LICENSE) for the full
+binding terms. In short:
 
-- Use is limited to **formally enrolled students under Dr. Yoram Segal's direct
-  academic instruction**, for personal educational purposes only.
-- **No commercial use, no redistribution, no derivative works** outside the
-  curriculum without prior explicit written consent from Dr. Yoram Segal or an
-  authorized GTAI representative.
-- By accessing, cloning, downloading, or using this repository you agree to be
-  bound by the LICENSE terms.
+- Use is limited to **formally enrolled students under Dr. Yoram Segal's direct academic
+  instruction**, for personal educational purposes only.
+- **No commercial use, no redistribution, no derivative works** outside the curriculum
+  without prior explicit written consent from Dr. Yoram Segal or an authorized GTAI
+  representative.
+- By accessing, cloning, downloading, or using this repository you agree to be bound by the
+  LICENSE terms.
 
 **Licensing / authorization requests:** segal@gal-tech.ai · [www.gal-tech.ai](https://www.gal-tech.ai)
