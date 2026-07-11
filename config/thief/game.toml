@@ -7,6 +7,13 @@ version = "1.10"
 [game]
 group_name = "Segal-Thief-Team"          # MY group name (shown in title bar, sealed into the log)
 sub_game_number = 1             # which sub-game of the series this run is
+# Group identity (private-local; exchanged with the opponent in the pre-game handshake
+# so each peer can build the whole-match declaration). Roles switch across sub-games,
+# so identity is per-GROUP, not per-role.
+group_id = "segal-thief-team"
+members = ["id-2001", "id-2002", "id-2003"]
+repos = { cop = "https://github.com/rmisegal/Game-P2P-Cop-Chase", thief = "https://github.com/rmisegal/Game-P2P-Cop-Chase" }
+mcp_servers = { cop = "http://127.0.0.1:8801/mcp", thief = "http://127.0.0.1:8801/mcp" }
 
 [board]
 size = 7                        # game grid N x N -- must match opponent (signed term)

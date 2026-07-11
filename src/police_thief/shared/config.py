@@ -14,6 +14,61 @@ from police_thief.shared.version import SUPPORTED_CONFIG_VERSIONS
 
 GAME_FILE = "game.toml"
 RATE_FILE = "rate_limits.json"
+SHARED_GAME_FILE = "game.json"  # optional shared, agreed, signed game terms (book Appendix F)
+
+
+def _translate_shared(shared: dict) -> dict:
+    """Map the shared JSON game-config (Appendix-F / template-2 schema) onto the
+    internal dotted namespace used across the app, so `.get('board.size')` etc.
+    keep working. Only keys present in `shared` are emitted (partial overlay)."""
+    out: dict[str, dict] = {}
+
+    def put(section: str, key: str, value: Any) -> None:
+        out.setdefault(section, {})[key] = value
+
+    board = shared.get("board_and_agents", {})
+    if "grid_size" in board:
+        put("board", "size", board["grid_size"])
+    if "thief_start" in board:
+        put("positions", "thief_start", board["thief_start"])
+    if "cop_start" in board:
+        put("positions", "cop_start", board["cop_start"])
+
+    mov = shared.get("movement_and_barriers", {})
+    if "move_set" in mov:
+        put("rules", "move_set", mov["move_set"])
+    if "max_barriers" in mov:
+        put("rules", "barriers_max", mov["max_barriers"])
+    if "max_moves" in mov:
+        put("rules", "max_moves", mov["max_moves"])
+    if "survival_threshold" in mov:
+        put("rules", "max_steps", mov["survival_threshold"])
+
+    if "scoring" in shared:
+        out["scoring"] = dict(shared["scoring"])
+
+    phe = shared.get("pheromones", {})
+    if "pheromone_center_intensity" in phe:
+        put("smell", "emit_intensity", phe["pheromone_center_intensity"])
+    if "pheromone_decay" in phe:
+        put("smell", "decay_per_step", phe["pheromone_decay"])
+    if "pheromone_grid_size" in phe:
+        put("smell", "grid_size", phe["pheromone_grid_size"])
+
+    league = shared.get("network_and_league", {})
+    if "num_games" in league:
+        put("game", "num_games", league["num_games"])
+
+    return out
+
+
+def _deep_merge(base: dict, overlay: dict) -> None:
+    """Recursively merge `overlay` INTO `base` (overlay wins on leaf conflicts)."""
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
 
 
 def _check_version(data: dict, source: str) -> None:
@@ -35,6 +90,15 @@ class ConfigManager:
         self._rates = self._load_json(self._dir / RATE_FILE)
         _check_version(self._game, GAME_FILE)
         _check_version(self._rates, RATE_FILE)
+        # Optional shared, agreed game terms (JSON). When present it overlays the
+        # local TOML game-terms, so both peers play byte-identical agreed rules.
+        shared_path = self._dir / SHARED_GAME_FILE
+        if shared_path.is_file():
+            shared = self._load_json(shared_path)
+            _deep_merge(self._game, _translate_shared(shared))
+            self._shared = shared
+        else:
+            self._shared = {}
 
     @staticmethod
     def _load_toml(path: Path) -> dict:
@@ -68,6 +132,11 @@ class ConfigManager:
     def rate_limits(self) -> dict:
         """The full rate_limits.json contents."""
         return self._rates
+
+    @property
+    def shared(self) -> dict:
+        """The raw shared game.json contents (empty dict if none present)."""
+        return self._shared
 
     def service_limits(self, service: str) -> dict:
         """Rate limits for a service, falling back to the default block."""
