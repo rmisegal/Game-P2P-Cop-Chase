@@ -1,6 +1,7 @@
 {
   "schema_version": "1.1",
   "_note": "Shared, agreed game terms. BOTH peers must hold a byte-identical copy; the pre-game signature exchange refuses to play on any mismatch. This overlays the private per-peer game.toml. Book: Appendix F.",
+  "agreed_between": ["segal-police-team", "segal-thief-team"],
   "board_and_agents": {
     "grid_size": 7,
     "thief_start": [3, 3],
@@ -25,6 +26,14 @@
     "pheromone_grid_size": 5
   },
   "network_and_league": {
-    "num_games": 1
+    "num_games": 1,
+    "token_budget_per_series": 200000
+  },
+  "rate_limiter_gatekeeper": {
+    "requests_per_minute": 30,
+    "concurrent_requests": 2,
+    "retry_backoff_sec": 5,
+    "max_retries": 3,
+    "queue_depth": 100
   }
 }

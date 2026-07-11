@@ -59,7 +59,7 @@ def finish(rt) -> dict:
         "result": result, "winner": winner, "steps": rt.state.step_number,
         "tokens_total": rt._tokens_total,
         "group_name": rt._config.get("game.group_name", "unnamed"),
-        "sub_game_number": rt._config.get("game.sub_game_number", 1),
+        "sub_game_number": rt._sub_game_number,
         "started_at": rt._started_at,
         "duration_seconds": round(time.monotonic() - rt._started_monotonic, 1),
         "audit": audit, "records": rt.records, "history": rt.handler.history,

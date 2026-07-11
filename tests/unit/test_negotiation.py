@@ -42,3 +42,42 @@ class TestNegotiation:
         assert message["terms"] == terms
         assert len(message["nonce"]) == 32
         assert len(message["signature"]) == 64
+
+    def test_identity_exchanged_and_captured(self, terms):
+        thief_id = {"group_id": "team-thief", "group_name": "T"}
+        police_id = {"group_id": "team-police", "group_name": "P"}
+        thief = Negotiation(terms, identity=thief_id)
+        police = Negotiation(terms, identity=police_id)
+        police.verify_peer(thief.signed())
+        thief.verify_peer(police.signed())
+        assert police.peer_identity == thief_id  # each captured the other's identity
+        assert thief.peer_identity == police_id
+
+    def test_identity_is_not_a_signed_term(self, terms):
+        # Different identities but identical terms still verify (identity != term).
+        thief = Negotiation(terms, identity={"group_id": "a"})
+        police = Negotiation(terms, identity={"group_id": "b"})
+        police.verify_peer(thief.signed())  # no CryptoError
+
+
+class TestTermsAndIds:
+    def test_terms_from_config_includes_num_games(self, config):
+        from police_thief.peer.sealing import terms_from_config
+
+        assert terms_from_config(config)["num_games"] == 1
+
+    def test_game_ids_deterministic_and_order_independent(self, terms):
+        from police_thief.domain.game_ids import derive_game_ids
+
+        a = derive_game_ids(terms, "team-07", "team-13")
+        b = derive_game_ids(terms, "team-13", "team-07")  # swapped order
+        assert a == b  # sorted pair -> identical id/uid for both peers
+        assert a[0] == "team-07-vs-team-13"
+        assert len(a[1]) == 36  # canonical UUID string
+
+    def test_game_uid_changes_with_terms(self, terms):
+        from police_thief.domain.game_ids import derive_game_ids
+
+        base = derive_game_ids(terms, "team-07", "team-13")[1]
+        other = derive_game_ids({**terms, "num_games": 6}, "team-07", "team-13")[1]
+        assert base != other

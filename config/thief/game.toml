@@ -67,7 +67,7 @@ step_deadline_seconds = 30      # HARD cap on LLM thinking per step; miss -> ran
 short_prompt_threshold_seconds = 10  # deadline below this -> compact prompt (faster reply)
 
 [email]
-recipient = "rmisegal+uoh--final-26@gmail.com"
+recipient = "rmisegal+uoh26finalgame@gmail.com"
 mode = "draft"
 enabled = false
 timeout_seconds = 120

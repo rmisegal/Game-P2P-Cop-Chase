@@ -10,33 +10,37 @@ token travels with the TurnMessage: receiving one makes this peer 'green'.
 import random
 import time
 
-from police_thief.constants import FINAL_CAUGHT_HINT, NO_HINT_PLACEHOLDER, MoveType, Role
+from police_thief.constants import NO_HINT_PLACEHOLDER, MoveType, Role
 from police_thief.domain.belief import BeliefGrid
 from police_thief.domain.brains import PoliceBrain, ThiefBrain
-from police_thief.domain.negotiation import Negotiation
 from police_thief.domain.own_state import OwnGameState
 from police_thief.domain.protocol import TurnMessage
 from police_thief.domain.rules import GameRules
 from police_thief.domain.smell import SmellField
+from police_thief.peer import turn_sender
 from police_thief.peer.controls import GameControls
-from police_thief.peer.sealing import (
-    build_turn_message,
-    now_iso,
-    sealed_spec_record,
-    sealed_step_record,
-    terms_from_config,
-)
-from police_thief.peer.summary import finish, snapshot, step_usage
+from police_thief.peer.sealing import identity_from_config, now_iso, sealed_spec_record
+from police_thief.peer.summary import finish, snapshot
 
 
 class PeerRuntime:
-    """Runs one agent (thief or police) against a remote opponent."""
+    """Runs one agent (thief or police) for ONE sub-game against a remote opponent.
 
-    def __init__(self, role: Role, config, llm, transport, listener=None, controls=None):
+    A series rebuilds a fresh runtime per sub-game (new state/belief/smell/commit
+    chain) while the transport/servers stay alive; `sub_game_number` is the live
+    series index and roles alternate across the series."""
+
+    def __init__(self, role: Role, config, llm, transport, listener=None, controls=None,
+                 own_identity: dict | None = None, sub_game_number: int = 1):
         from police_thief.peer.turn_handler import TurnHandler
 
         self.role = role
         self._config = config
+        self._own_identity = own_identity or identity_from_config(config)
+        self._sub_game_number = sub_game_number
+        self.peer_identity: dict = {}
+        self.game_id: str | None = None
+        self.game_uid: str | None = None
         self._transport = transport
         self._listen = listener or (lambda event: None)
         self.controls = controls or GameControls()
@@ -52,8 +56,7 @@ class PeerRuntime:
             decay=config.get("smell.decay_per_step"),
             min_center=config.get("smell.min_center_intensity"),
         )
-        # My own emitted scent as a decaying trail; only its intensity field is sent
-        # to the opponent (never my exact cell), so no position coordinate leaks.
+        # My own scent trail; only its intensity field is sent (never my exact cell).
         self.my_scent = SmellField(
             board_size=size, grid_size=config.get("smell.grid_size"),
             decay=config.get("smell.decay_per_step"),
@@ -68,7 +71,7 @@ class PeerRuntime:
         self._started_monotonic = time.monotonic()
         self._started_at = now_iso()
         self.records: list[dict] = []   # my sealed steps: {payload, nonce, commit}
-        self.records.append(sealed_spec_record(config))
+        self.records.append(sealed_spec_record(config, sub_game_number))
         self._result: tuple[str, str] | None = None  # (result, winner)
 
     def view(self) -> dict:
@@ -76,15 +79,14 @@ class PeerRuntime:
 
     def run(self, skip_negotiation: bool = False) -> dict:
         if not skip_negotiation:
-            negotiation = Negotiation(terms_from_config(self._config))
-            peer_message = self._transport.exchange_agreement(negotiation.signed())
-            negotiation.verify_peer(peer_message)
-            self._started_monotonic = time.monotonic()  # game clock starts at agreement
+            from police_thief.peer.handshake import negotiate
+
+            negotiate(self)
             self._listen({"type": "negotiated", "view": self.view()})
         if self.role is Role.THIEF:
             self._take_turn(claim_response=None)
         self._turn_loop()
-        return self._finish()
+        return finish(self)
 
     def _turn_loop(self) -> None:
         timeout = self._config.get("network.turn_timeout_seconds")
@@ -107,7 +109,7 @@ class PeerRuntime:
             elif outcome.opponent_won:
                 self._result = (outcome.win_type or "survival", Role.THIEF.value)
             elif outcome.i_am_caught:
-                self._send_final(outcome.claim_response)
+                turn_sender.send_final(self, outcome.claim_response)
                 self._result = ("capture", Role.POLICE.value)
             else:
                 self._take_turn(outcome.claim_response)
@@ -131,39 +133,16 @@ class PeerRuntime:
         if not self.state.apply_move(decision.move_type, decision.direction,
                                      self._config.get("rules.barriers_max")):
             self.state.apply_move(MoveType.HOLD, None)  # never stall the loop
-        usage = self._step_usage()
+        usage = turn_sender.step_usage_of(self)
         win = self.rules.thief_result(self.state) if self.role is Role.THIEF else None
         capture_claim = (
             list(self.state.position)
             if self.role is Role.POLICE and decision.move_type is MoveType.MOVE else None
         )
-        self._send(decision, usage, claim_response, capture_claim,
-                   {"type": win} if win else None)
+        turn_sender.send(self, decision, usage, claim_response, capture_claim,
+                         {"type": win} if win else None)
         self._listen({"type": "moved", "decision": decision, "view": self.view(),
                       "commit": self.records[-1]["commit"],
                       "usage": {**usage, "match_total": self._tokens_total}})
         if win:
             self._result = (win, Role.THIEF.value)
-
-    def _step_usage(self) -> dict:
-        return step_usage(self)
-
-    def _send_final(self, claim_response: dict | None) -> None:
-        from police_thief.domain.brains import Decision
-
-        final = Decision(MoveType.HOLD, None, FINAL_CAUGHT_HINT, "truth")
-        self._send(final, self._step_usage(), claim_response, None, None)
-
-    def _send(self, decision, usage, claim_response, capture_claim, win_claim) -> None:
-        record = sealed_step_record(self.state, decision, usage, self._tokens_total)
-        self.records.append(record)
-        self.my_scent.deposit(self.state.position, self._config.get("smell.emit_intensity"))
-        self.my_scent.decay_all()
-        message = build_turn_message(
-            self.state, self.role.value, decision.hint, self.my_scent.snapshot(),
-            record["commit"], capture_claim, claim_response, win_claim,
-        )
-        self._transport.send_turn(message.to_dict())
-
-    def _finish(self) -> dict:
-        return finish(self)

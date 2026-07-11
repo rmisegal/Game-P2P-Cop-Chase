@@ -2,9 +2,12 @@
 # All rights reserved. Educational Use EULA - see LICENSE. Contact: segal@gal-tech.ai
 """SimulationSdk — every consumer (CLI, GUI, third parties) goes through here.
 
-run_peer() runs ONE standalone agent: its own MCP server, its own claude -p
-brain, its own state — connected to the opponent only by URL. It saves the
-match log, builds the Hebrew report and (if enabled) emails it.
+run_peer() runs one standalone agent through a whole SERIES of N sub-games (its
+own MCP server, its own claude -p brain, its own state — connected to the
+opponent only by URL). The transport/servers are built ONCE and kept alive
+across the series; roles alternate each sub-game. It writes the four standardized
+game JSON artifacts (declaration, config, log, result), keeps the legacy Hebrew
+report/log for back-compat, and (if enabled) emails the result JSON.
 """
 
 import json
@@ -12,7 +15,6 @@ from pathlib import Path
 
 from police_thief.constants import Role
 from police_thief.infra.email_sender import EmailSender
-from police_thief.peer.runtime import PeerRuntime
 from police_thief.report.report_writer import build_report
 from police_thief.shared.config import ConfigManager
 
@@ -81,26 +83,31 @@ class SimulationSdk:
 
     def run_peer(self, role: str, stub_llm: bool = False, transport=None,
                  listener=None, controls=None) -> dict:
-        """Run one agent to completion; persist log; build report; email it."""
-        peer_role = Role(role)
-        runtime = PeerRuntime(
-            role=peer_role, config=self.config,
-            llm=self._build_llm(stub_llm),
-            transport=transport or self._build_transport(peer_role),
-            listener=listener, controls=controls,
-        )
-        summary = runtime.run()
+        """Play the whole series; write the four artifacts; email the result."""
         from police_thief.peer.sealing import terms_from_config
+        from police_thief.report.emit import emit_series
+        from police_thief.sdk.series import run_series
 
-        report = build_report(summary, self.config, terms=terms_from_config(self.config))
-        log_path = self._save_log(peer_role, summary, report)
-        subject = (
-            f"Police-Thief match result: {summary['result']} "
-            f"(winner: {summary['winner']}, reported by {role})"
-        )
-        email = EmailSender(self.config).send_report(report, subject)
-        return {"summary": summary, "report": report, "email": email,
-                "log_path": str(log_path)}
+        peer_role = Role(role)
+        # Build the transport (and this peer's MCP server) ONCE for the whole series.
+        transport = transport or self._build_transport(peer_role)
+        series = run_series(self.config, peer_role, self._build_llm(stub_llm),
+                            transport, listener=listener, controls=controls)
+
+        logs_dir = self._workdir / self.config.get("paths.logs_dir", "logs")
+        result_json = emit_series(self.config, logs_dir, series)
+
+        last = series.summaries[-1]
+        report = build_report(last, self.config, terms=terms_from_config(self.config))
+        self._save_log(peer_role, last, report)  # legacy Hebrew log (back-compat)
+
+        winner = result_json["final_result"].get("winner_group") or last["winner"]
+        subject = f"Police-Thief series result: winner {winner} (reported by {role})"
+        email = EmailSender(self.config).send_report(result_json, subject)
+        result_path = logs_dir / f"result_{series.game_id}.json"
+        return {"summary": last, "report": report, "email": email,
+                "summaries": series.summaries, "result": result_json,
+                "log_path": str(result_path)}
 
     def _save_log(self, role: Role, summary: dict, report: dict) -> Path:
         logs_dir = self._workdir / self.config.get("paths.logs_dir", "logs")

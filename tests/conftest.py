@@ -10,6 +10,10 @@ version = "1.10"
 [game]
 group_name = "TestGroup"
 sub_game_number = 1
+group_id = "test-group"
+members = ["id-1", "id-2"]
+repos = { cop = "u/cop", thief = "u/thief" }
+mcp_servers = { cop = "c.example", thief = "t.example" }
 [board]
 size = 10
 [smell]
