@@ -7,16 +7,16 @@ its visited-cells set and (for police) its barrier quota; opponent-declared
 barriers are noted as they arrive over the wire.
 """
 
-from police_thief.constants import Direction, MoveType, Role
+from police_thief.constants import Direction, MoveType, Role, directions_from_move_set
 from police_thief.domain.board import Board, Cell
 
 
 class OwnGameState:
     """One peer's private game state and per-step move log."""
 
-    def __init__(self, role: Role, start: Cell, board_size: int):
+    def __init__(self, role: Role, start: Cell, board_size: int, move_set=None):
         self.role = role
-        self.board = Board(board_size)
+        self.board = Board(board_size, moves=directions_from_move_set(move_set))
         self.position: Cell = start
         self.visited: set[Cell] = {start}
         self.barriers: set[Cell] = set()  # all known barriers (mine + declared by opponent)

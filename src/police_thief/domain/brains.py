@@ -126,10 +126,6 @@ class BrainBase:
         return FALLBACK_HINT
 
 
-def _chebyshev(a, b) -> int:
-    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
-
-
 class ThiefBrain(BrainBase):
     """Evade: maximize distance from the believed cop cell, prefer unvisited."""
 
@@ -140,7 +136,7 @@ class ThiefBrain(BrainBase):
         threat = belief.most_likely()
         return max(
             moves,
-            key=lambda m: (_chebyshev(m[1], threat), m[1] not in state.visited),
+            key=lambda m: (state.board.distance(m[1], threat), m[1] not in state.visited),
         )
 
 
@@ -152,4 +148,4 @@ class PoliceBrain(BrainBase):
 
     def _pick_move(self, moves, state, belief):
         target = belief.most_likely()
-        return min(moves, key=lambda m: _chebyshev(m[1], target))
+        return min(moves, key=lambda m: state.board.distance(m[1], target))

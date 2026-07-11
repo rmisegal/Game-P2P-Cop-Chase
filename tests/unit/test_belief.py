@@ -31,6 +31,22 @@ class TestBeliefGrid:
         assert after[2][2] > 0
         assert sum(sum(row) for row in after) == pytest.approx(1.0)
 
+    def test_orthogonal_diffuse_favours_von_neumann(self):
+        b = BeliefGrid(board_size=10, orthogonal=True)
+        b.observe_smell({"5,5": 1000.0})
+        b.diffuse()
+        m = b.as_matrix()
+        # 4-neighbours get direct mass; the diagonal only tiny indirect leakage.
+        assert m[4][5] > m[4][4] * 5
+        assert m[5][4] > m[4][4] * 5
+
+    def test_king_diffuse_reaches_diagonal(self):
+        b = BeliefGrid(board_size=10, orthogonal=False)
+        b.observe_smell({"5,5": 1000.0})
+        b.diffuse()
+        m = b.as_matrix()
+        assert m[4][4] > 0  # king diffusion spreads to the diagonal too
+
     def test_exclude_cell_zeroes_and_renormalizes(self, belief):
         belief.exclude((0, 0))  # e.g. I stand here and opponent is not caught
         probs = belief.as_matrix()

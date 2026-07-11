@@ -15,9 +15,15 @@ _EPSILON = 1e-9
 class BeliefGrid:
     """Probability distribution over an NxN board for the opponent's cell."""
 
-    def __init__(self, board_size: int, smell_trust: float = 4.0):
+    def __init__(self, board_size: int, smell_trust: float = 4.0, orthogonal: bool = False):
         self._size = board_size
         self._smell_trust = smell_trust
+        # Diffusion neighbourhood must match how the opponent can move: 4-neighbour
+        # (von Neumann) for orthogonal play, 3x3 king neighbourhood otherwise.
+        if orthogonal:
+            self._offsets = [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]
+        else:
+            self._offsets = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)]
         uniform = 1.0 / (board_size * board_size)
         self._probs = [[uniform] * board_size for _ in range(board_size)]
 
@@ -49,8 +55,7 @@ class BeliefGrid:
                     continue
                 targets = [
                     (r + dr, c + dc)
-                    for dr in (-1, 0, 1)
-                    for dc in (-1, 0, 1)
+                    for dr, dc in self._offsets
                     if 0 <= r + dr < self._size and 0 <= c + dc < self._size
                 ]
                 share = mass / len(targets)

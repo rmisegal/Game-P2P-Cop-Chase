@@ -42,9 +42,11 @@ class PeerRuntime:
         self.controls = controls or GameControls()
         size = config.get("board.size")
         start = tuple(config.get(f"positions.{'thief' if role is Role.THIEF else 'cop'}_start"))
-        self.state = OwnGameState(role=role, start=start, board_size=size)
+        self.state = OwnGameState(role=role, start=start, board_size=size,
+                                  move_set=config.get("rules.move_set"))
         self.belief = BeliefGrid(board_size=size,
-                                 smell_trust=config.get("belief.smell_trust_weight", 4.0))
+                                 smell_trust=config.get("belief.smell_trust_weight", 4.0),
+                                 orthogonal=not self.state.board.diagonal)
         self.smell = SmellField(
             board_size=size, grid_size=config.get("smell.grid_size"),
             decay=config.get("smell.decay_per_step"),

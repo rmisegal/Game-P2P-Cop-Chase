@@ -49,6 +49,28 @@ DELTAS: dict[Direction, tuple[int, int]] = {
     Direction.NW: (-1, -1),
 }
 
+# The four orthogonal (rook) directions — the book's default move set.
+ORTHOGONAL: tuple[Direction, ...] = (Direction.N, Direction.S, Direction.E, Direction.W)
+
+
+def directions_from_move_set(move_set) -> tuple[Direction, ...]:
+    """Translate a config `move_set` (e.g. ['N','S','E','W','STAY']) into the allowed
+    board Direction members. STAY/HOLD are not board steps and are dropped here.
+    A falsy/empty move_set means the legacy 8-direction king movement."""
+    if not move_set:
+        return tuple(Direction)
+    dirs: list[Direction] = []
+    for token in move_set:
+        name = str(token).strip().upper()
+        if name in ("STAY", "HOLD"):
+            continue
+        try:
+            dirs.append(Direction(name))
+        except ValueError:
+            continue
+    return tuple(dirs) or tuple(Direction)
+
+
 VERDICT_TRUTH = "truth"
 VERDICT_LIE = "lie"
 
