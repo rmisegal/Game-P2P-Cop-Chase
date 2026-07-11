@@ -12,7 +12,6 @@ import time
 
 from police_thief.constants import NO_HINT_PLACEHOLDER, MoveType, Role
 from police_thief.domain.belief import BeliefGrid
-from police_thief.domain.brains import PoliceBrain, ThiefBrain
 from police_thief.domain.own_state import OwnGameState
 from police_thief.domain.protocol import TurnMessage
 from police_thief.domain.rules import GameRules
@@ -21,6 +20,7 @@ from police_thief.peer import turn_sender
 from police_thief.peer.controls import GameControls
 from police_thief.peer.sealing import identity_from_config, now_iso, sealed_spec_record
 from police_thief.peer.summary import finish, snapshot
+from police_thief.strategy import resolve_brain
 
 
 class PeerRuntime:
@@ -64,8 +64,9 @@ class PeerRuntime:
         )
         self.rules = GameRules(config.get("rules.max_steps"))
         self.handler = TurnHandler(self.state, self.belief, self.smell, self.rules)
-        brain_cls = ThiefBrain if role is Role.THIEF else PoliceBrain
-        self.brain = brain_cls(llm, rng=random.Random(config.get("play.seed")))
+        # Strategy seam: the brain class is INJECTABLE via config (strategy.thief_class /
+        # strategy.police_class); unset => the shipped heuristic brain (default behaviour).
+        self.brain = resolve_brain(config, role, llm, rng=random.Random(config.get("play.seed")))
         self._llm = llm
         self._tokens_total = 0
         self._started_monotonic = time.monotonic()

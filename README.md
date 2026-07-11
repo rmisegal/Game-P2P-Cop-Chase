@@ -87,6 +87,50 @@ negotiate the game agreement (mutual SHA-256 signatures over board size, smell s
 rules, start positions, setting) before the thief's first move; a mismatch refuses to
 play. Everything then runs fully autonomously.
 
+**Headless / dry run** (no GUI, no `claude -p` — a deterministic stub policy, ideal
+for CI and end-to-end checks):
+
+```powershell
+uv run python -m police_thief peer --role police --stub-llm --no-gui   # Terminal 1
+uv run python -m police_thief peer --role thief  --stub-llm --no-gui   # Terminal 2
+```
+
+Both peers write the four JSON artifacts (below) into `logs/`; a real localhost stub
+run is checked in at [`docs/sample-run/`](docs/sample-run/).
+
+## Multi-game series & the four JSON artifacts
+
+A single invocation plays a **series** of `num_games` sub-games and then stops. The
+shipped default is **`num_games = 1`**; the guidelines **book mandates 6**. Set it in
+the shared, signed `config/<role>/game.json` under
+`network_and_league.num_games` (both peers must hold a byte-identical copy).
+
+**Role alternation** — across the series a peer plays its config-natural role on odd
+sub-games and the **opposite** role on even ones, so the two peers always stay
+consistent (when A is cop, B is thief). Scores are tracked **per group**, aggregated
+over the series, with a `tie_score` on an equal series.
+
+Every series emits **four standardized JSON files** into `logs/`, all named from the
+shared human `game_id` and all carrying one shared `game_uid` (a `uuid4` agreed in the
+handshake) that stitches them together (book Appendix F):
+
+| File | What it is |
+|------|------------|
+| `declaration_<game_id>.json` | **Pre-game declaration** — both groups' identity (members, repos, MCP servers), per-group hardware spec + signature, timezone, token budget, `num_games`. Written once. |
+| `config_<game_id>_g<NN>.json` | The **agreed game config** actually played for sub-game `NN`, plus its `config_sha256`. One per sub-game. |
+| `log_<game_id>_g<NN>.json` | The **full sealed game log** for sub-game `NN`: every commit-revealed step (state, move, verdict, `prompt_discussion`), the summary, and the mutual audit result. One per sub-game (each peer writes its own). |
+| `result_<game_id>.json` | The **aggregated final result**: per-sub-game rows, per-group total scores, series winner/tie, and the mutual-agreement signature. Written once. |
+
+## Strategy — upgrade the brain (the student's mission)
+
+The shipped decision policy is deliberately simple; replacing it is the assignment.
+The brain is **injectable**: point `[strategy] thief_class` / `police_class` in your
+private `config/<role>/game.toml` at your own `BrainBase` subclass
+(`"package.module:ClassName"`), or override the `_pick_move(...)` heuristic hook
+and/or the `prompt_builder` LLM-prompt hook. Left unset (as shipped), the default
+heuristic is used. **See [`docs/STRATEGY.md`](docs/STRATEGY.md)** for the exact seam,
+the `Decision` contract, and a worked example.
+
 ### The GUI (one per peer)
 
 - **Title bar**: `<group name> | sub-game <n> | <ROLE> | mm:ss` — live game timer
@@ -222,6 +266,9 @@ Alternatively change `network.my_port` in that peer's `config/<role>/game.toml`
 ## Docs
 
 - `docs/PLAN.md` — the authoritative build plan (distributed architecture rationale).
+- `docs/STRATEGY.md` — how to upgrade the agent's brain (the injectable strategy seam).
+- `docs/sample-run/` — a real localhost stub series: the four emitted JSON artifacts,
+  all sharing one `game_uid`.
 - Game rules: `../manus-final-project-game-book-V3.md`; worked example:
   `../5-step-game-simulation.md`.
 

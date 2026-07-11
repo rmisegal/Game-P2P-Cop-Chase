@@ -35,6 +35,15 @@ cop_start = [5, 3]                # (7,5) is off-board on 7x7
 [belief]
 smell_trust_weight = 4.0        # my private tuning (not a signed term)
 
+# [strategy]  --  THE STUDENT'S SEAM (optional; unset => shipped heuristic brain).
+# Point either key at YOUR own brain subclass as "package.module:ClassName". Your
+# class must subclass police_thief.domain.brains.BrainBase (usually ThiefBrain /
+# PoliceBrain) and override `_pick_move(...)` and/or `prompt_builder`. Leaving this
+# commented out keeps the default deterministic heuristic. See docs/STRATEGY.md.
+# [strategy]
+# thief_class  = "my_team.strategy:MyThiefBrain"
+# police_class = "my_team.strategy:MyPoliceBrain"
+
 [gui]
 cell_px = 52
 
