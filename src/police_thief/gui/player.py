@@ -11,6 +11,7 @@ import queue
 import threading
 import time
 
+from police_thief.gui import live_apply
 from police_thief.gui.game_mode import mode_and_model
 from police_thief.gui.live_controls import LiveControls, clamp_subgames
 from police_thief.gui.replay import ReplayApp  # noqa: F401  (re-export for cli)
@@ -49,11 +50,13 @@ class LivePeerApp:
 
         # Verbal-game mode + model per book Table 22 (the MOVE is always Python).
         game_mode, model_label = mode_and_model(sdk.config)
+        self._bidi_i = False   # I opted into the bidirectional channel
+        self._bidi_peer = False  # the opponent opted in
         self._window.add_menu({
             "code_version": CODE_VERSION, "role": role,
             "game_mode": game_mode, "model": model_label,
             **collect_spec(),
-        })
+        }, on_bidirectional=self._toggle_bidirectional)
         self._window.set_label("mode", game_mode)
         self._window.set_label("model", model_label)
         self._window.root.title(self._title_base)
@@ -74,13 +77,26 @@ class LivePeerApp:
         self._window.root.after(1000, self._tick_clock)
 
     def _quit(self) -> None:
-        """Clean shutdown of THIS peer (P3 also notifies the opponent)."""
+        """Clean shutdown of THIS peer; the runtime sends a quit notice to the
+        opponent on its next control check, so give it a moment before closing."""
+        self._controls.request_quit()
         self._controls.stop()
-        self._window.root.destroy()
+        self._window.set_turn(False, "QUITTING - notifying opponent...")
+        self._window.root.after(400, self._window.root.destroy)
 
     def _restart(self) -> None:
-        # Enabled only under the bidirectional control channel (wired in P3/P4).
-        self._window.set_label("status", "Restart requires bidirectional control")
+        """Ask the opponent to restart the whole series (auto-approved when active)."""
+        self._controls.request_restart()
+        self._window.set_turn(False, "RESTART requested (whole series)")
+
+    def _toggle_bidirectional(self, enabled: bool) -> None:
+        """Tools menu: opt into the bidirectional control channel (one-way for the
+        session). Active only once the opponent opts in too."""
+        if enabled and not self._bidi_i:
+            self._bidi_i = True
+            self._controls.request_enable()
+            self._window.set_label("opp_status", "waiting for opponent to enable...")
+            live_apply.activate_if_ready(self)
 
     def _pause(self) -> None:
         self._controls.pause()
@@ -126,47 +142,7 @@ class LivePeerApp:
         self._window.root.after(100, self._poll)
 
     def _apply(self, event: dict) -> None:
-        window = self._window
-        kind = event["type"]
-        if kind == "error":
-            window.set_turn(False, "ERROR - see status")
-            window.set_label("status", event["message"])
-            return
-        window.render(event["view"])
-        if kind == "negotiated":
-            self._t0 = time.monotonic()  # game clock starts at agreement
-            window.set_label("status", "Agreement signed & verified (SHA-256)")
-            window.set_turn(self._role == "thief")  # thief moves first
-        elif kind == "incoming":
-            message = event["message"]
-            window.set_label("hint_in", f"step {message['step']}: {message['hint']}")
-            window.set_turn(True)
-        elif kind == "moved":
-            decision = event["decision"]
-            usage = event.get("usage", {})
-            # The Model/Game-mode rows stay fixed to the Table-22 config mode; the
-            # actual per-step token spend is shown in Tokens / LLM response instead.
-            window.set_label("tokens",
-                             f"{usage.get('total', 0):,} / {usage.get('match_total', 0):,}")
-            window.set_label("llm_time", f"{decision.response_seconds:.2f}"
-                             + (" [RANDOM - deadline missed]" if decision.random_move
-                                else ""))
-            window.set_label("hint_out", f"step {event['view']['step']}: {decision.hint}")
-            window.set_label("verdict", decision.verdict
-                             + (" (fallback policy)" if decision.fallback else ""))
-            window.set_label("commit", event["commit"][:32] + "...")
-            window.set_turn(False)
-        elif kind == "game_over":
-            summary = event["summary"]
-            audit = summary["audit"]
-            verdict = "PASSED" if audit["passed"] else "FAILED"
-            window.set_turn(False, f"GAME OVER: {summary['result']} - "
-                                   f"winner {summary['winner'].upper()}")
-            self._t0 = None  # freeze the title clock
-            window.set_label("status", f"Audit {verdict}: "
-                                       f"{audit['verified_steps']} steps verified | "
-                                       f"tokens total: {summary.get('tokens_total', 0):,} | "
-                                       f"duration: {summary.get('duration_seconds', 0)}s")
+        live_apply.apply_event(self, event)
 
     def run(self) -> dict:
         # The window opens idle; the worker starts only when the user presses Start.

@@ -62,9 +62,17 @@ class PeerWindow:
         tk.Scale(panel, from_=0.0, to=60.0, resolution=0.1, orient="horizontal",
                  variable=self.speed).pack(fill="x")
 
-    def add_menu(self, about: dict, with_pdf: bool = True) -> None:
-        """Menu bar: Help -> About, and Help -> Open guidelines PDF."""
+    def add_menu(self, about: dict, with_pdf: bool = True, on_bidirectional=None) -> None:
+        """Menu bar: Tools -> Bidirectional control (opt-in), Help -> About / PDF."""
         menubar = tk.Menu(self.root)
+        if on_bidirectional is not None:
+            tools = tk.Menu(menubar, tearoff=0)
+            self.bidirectional_var = tk.BooleanVar(value=False)
+            tools.add_checkbutton(
+                label="Bidirectional control messages",
+                variable=self.bidirectional_var,
+                command=lambda: on_bidirectional(self.bidirectional_var.get()))
+            menubar.add_cascade(label="Tools", menu=tools)
         helpm = tk.Menu(menubar, tearoff=0)
         helpm.add_command(label="About", command=lambda: self._show_about(about))
         if with_pdf:
