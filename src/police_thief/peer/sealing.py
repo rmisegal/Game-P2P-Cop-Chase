@@ -88,6 +88,8 @@ def terms_from_config(cfg) -> dict:
         "board_size": cfg.get("board.size"),
         "smell_grid_size": cfg.get("smell.grid_size"),
         "decay_per_step": cfg.get("smell.decay_per_step"),
+        "emit_intensity": cfg.get("smell.emit_intensity"),
+        "min_center_intensity": cfg.get("smell.min_center_intensity"),
         "max_steps": cfg.get("rules.max_steps"),
         "barriers_max": cfg.get("rules.barriers_max"),
         "setting": cfg.get("play.setting"),  # the agreed real-world map area (world.map_area)

@@ -1,7 +1,9 @@
-# THIEF peer configuration — this agent's private setup, fully separate from the
-# police peer (like two students on two different PCs). Game terms (board, smell,
-# rules, positions) MUST match the opponent's config: the pre-game signature
-# exchange verifies them and refuses to play on any mismatch.
+# THIEF peer configuration — this agent's PRIVATE, LOCAL setup only (like two
+# students on two different PCs). Anything the two sides must AGREE on — board,
+# smell/pheromones, rules, start positions, the real-world map area, hint length —
+# is NOT here: it lives in the shared, signed game.json (the pre-game signature
+# exchange verifies it and refuses to play on any mismatch). This file must contain
+# nothing that is relevant to the opponent.
 version = "1.10"
 
 [game]
@@ -15,25 +17,12 @@ members = ["id-2001", "id-2002", "id-2003"]
 repos = { cop = "https://github.com/rmisegal/Game-P2P-Cop-Chase", thief = "https://github.com/rmisegal/Game-P2P-Cop-Chase" }
 mcp_servers = { cop = "http://127.0.0.1:8801/mcp", thief = "http://127.0.0.1:8801/mcp" }
 
-[board]
-size = 7                        # game grid N x N -- must match opponent (signed term)
-
-[smell]
-grid_size = 5                   # smell grid M x M -- must match opponent (signed term)
-decay_per_step = 0.10
-min_center_intensity = 0.5
-emit_intensity = 0.9
-
-[rules]
-max_steps = 35                  # thief survives this many steps -> thief wins (matches game.json)
-barriers_max = 14               # matches game.json (overridden by it when present)
-
-[positions]
-thief_start = [3, 3]
-cop_start = [0, 0]                # corner start (matches game.json)
+# board / smell / rules / positions / map-area are SHARED, AGREED terms and live
+# ONLY in the signed game.json (board_and_agents, pheromones, movement_and_barriers,
+# world.map_area). They were intentionally removed from this private TOML.
 
 [belief]
-smell_trust_weight = 4.0        # my private tuning (not a signed term)
+smell_trust_weight = 4.0        # MY private belief tuning (not shared, not signed)
 
 # [strategy]  --  THE STUDENT'S SEAM (optional; unset => shipped heuristic brain).
 # Point either key at YOUR own brain subclass as "package.module:ClassName". Your
@@ -68,8 +57,7 @@ log_filename = "{role}_match.json"
 
 [play]
 step_speed_seconds = 1.0        # MY GUI pacing (each peer has its own)
-setting = "New York"            # local default; overlaid by the signed game.json world.map_area
-seed = 1234
+seed = 1234                     # MY private RNG seed (local move/banter randomness)
 
 [network]
 my_port = 8801                            # MY MCP server port

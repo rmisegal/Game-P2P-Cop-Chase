@@ -4,8 +4,8 @@
 
 from pathlib import Path
 
-CODE_VERSION = "2.2.0"
-BOOK_VERSION = "1.0.36"  # guidelines book (kept in sync by scripts/sync_versions.py)
+CODE_VERSION = "2.3.0"
+BOOK_VERSION = "1.0.37"  # guidelines book (kept in sync by scripts/sync_versions.py)
 SUPPORTED_CONFIG_VERSIONS = ["1.10"]
 
 # Short suffix shown in every GUI title bar (requirement: game id + rights).

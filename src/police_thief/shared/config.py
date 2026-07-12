@@ -64,6 +64,8 @@ def _translate_shared(shared: dict) -> dict:
         put("smell", "decay_per_step", phe["pheromone_decay"])
     if "pheromone_grid_size" in phe:
         put("smell", "grid_size", phe["pheromone_grid_size"])
+    if "pheromone_min_center_intensity" in phe:
+        put("smell", "min_center_intensity", phe["pheromone_min_center_intensity"])
 
     league = shared.get("network_and_league", {})
     if "num_games" in league:
