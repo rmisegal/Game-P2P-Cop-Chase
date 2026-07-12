@@ -2,4 +2,4 @@
 # All rights reserved. Educational Use EULA - see LICENSE. Contact: segal@gal-tech.ai
 """Police-vs-Thief: distributed autonomous pursuit simulation."""
 
-__version__ = "1.10"
+__version__ = "3.0.0"

@@ -1,6 +1,6 @@
 [project]
 name = "police-thief"
-version = "2.0.1"
+version = "3.0.0"
 description = "Distributed Cop-vs-Thief autonomous AI simulation with MCP, claude -p, crypto commit-reveal, and a Tkinter replay player"
 readme = "README.md"
 authors = [
