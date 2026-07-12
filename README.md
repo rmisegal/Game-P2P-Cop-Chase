@@ -1,7 +1,7 @@
 # Police-vs-Thief: Fully Distributed AI Pursuit Simulation
 
 <!-- VERSIONS: auto-synced by scripts/sync_versions.py via the pre-commit hook. Do not edit the values between the markers by hand. -->
-> <!--CODE_VERSION_START-->**Code `v2.3.1`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.39`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
+> <!--CODE_VERSION_START-->**Code `v2.4.0`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.40`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
 >
 > These two versions are **deep-linked**: the book's cover and its reference appendix display this code version (read at LaTeX compile time), and this line is refreshed from the book on every `git commit` (pre-commit hook).
 
@@ -115,7 +115,9 @@ uv run python -m police_thief peer --role police   # Terminal 1
 uv run python -m police_thief peer --role thief    # Terminal 2
 ```
 
-Each peer auto-loads **its own config directory** (`config/police/`, `config/thief/`). The
+Each **GUI window opens idle** — choose the number of **sub-games (1–6)** and press **Start** to
+begin (headless `--no-gui` runs start immediately, using `num_games` from the config). Each peer
+auto-loads **its own config directory** (`config/police/`, `config/thief/`). The
 peers negotiate the game agreement (mutual SHA-256 signatures over the shared game terms)
 and agree a shared `game_id`/`game_uid` before the thief's first move; a mismatch refuses
 to play. Each peer writes its four JSON artifacts (below) into **its own
@@ -250,14 +252,16 @@ ends with the copyright notice **"© 2026 Dr. Yoram Segal – all rights reserve
 | Label | How to read it |
 |---|---|
 | **Step** | current move number of this sub-game. |
-| **Model** | the LLM behind the banter (`stub`/`template` = none). |
+| **Game mode** | the verbal-game mode (**book Table 22**): **Python (template)**, **Ollama**, or **Remote LLM**. The *move* is always Python regardless. |
+| **Model** | the banter model for that mode — **`None`** for the template (Python) mode, else the actual model name. |
 | **Tokens step / total** | tokens the **banter** spent this step / cumulatively. **`0 / 0` = the free template** — the *move* never spends tokens. |
 | **LLM response (s)** | how long the banter call took (`0.00` for template); `[RANDOM – deadline missed]` if a banter call timed out. |
 | **Barriers used** | police barrier quota consumed / max. |
-| **Opponent says** | the opponent's last natural-language hint — **may be a lie**. |
-| **I said** | your own hint this step. |
+| **Opponent says** | the opponent's last hint, prefixed with the step it was said on (`step N:`) — **may be a lie**. |
+| **My response** | your own hint this step, prefixed with your step number. |
 | **My verdict** | your self-declared `truth`/`lie` for that hint (sealed & audited). |
 | **My commit (sealed)** | SHA-256 of your sealed move, re-verified at the audit. |
+| **Opponent status** | under the bidirectional channel, the opponent's shared live status (`WAITING`/`THINKING`/`PLAYING`/`PAUSED`/`STOPPED`/`GAME_OVER`/`QUIT`) + its sub-game and step budget; otherwise `-`. |
 | **Status** | agreement / audit messages and the end-of-game summary. |
 
 **④ Step-time-budget slider (0–60 s) — the control that matters most.** It is the **enforced
@@ -270,13 +274,41 @@ total time budget for each of YOUR turns**:
   (`[RANDOM – deadline missed]`), so a slow model never stalls the game. **Lower budget → faster
   games and fewer/no tokens.**
 
-**⑤ Buttons (bottom) + Help menu.** **Pause** freezes *your* agent before it thinks (pausing
-longer than the opponent's `turn_timeout_seconds` hands it a technical win, as in a real
-distributed game); **Play** resumes; **Stop** cancels your game (`result: stopped`, audit
-skipped). The **Help** menu (menu bar) has **About** — showing the **code version**, the
-**guidelines-book version**, the full **License & Copyright** notice, the model, and your
-sealed host spec (CPU/RAM/GPU) — and **Open guidelines PDF**, which opens
-[`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf) in a separate window.
+**⑤ Control bar (bottom) + menus.** The live window opens **idle**. Pick the number of
+**sub-games (1–6)** from the dropdown, then press **Start** to negotiate and play (the count
+overrides `network_and_league.num_games` for this run — if the two peers pick different values
+the signature check refuses to play). Once started: **Pause** freezes *your* agent before it
+thinks (pausing longer than the opponent's `turn_timeout_seconds` hands it a technical win);
+**Play** resumes; **Stop** cancels your game (`result: stopped`, audit skipped); **Restart**
+(enabled only under the bidirectional channel) asks for a whole-series restart; **Quit** shuts
+this peer down cleanly and — when the channel is active — tells the opponent it quit (instead of
+leaving it to time out).
+
+Menus:
+- **Tools → Bidirectional control messages** — the opt-in below.
+- **Help → About** — the **code version**, the **guidelines-book version**, the full
+  **License & Copyright** notice, the game mode/model, and your sealed host spec (CPU/RAM/GPU).
+- **Help → Open guidelines PDF** — opens [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf)
+  in a separate window.
+
+### Bidirectional control channel (optional, off by default)
+
+By default each peer runs exactly as before — it only ever sends sealed turn messages, and a
+silent opponent past `turn_timeout_seconds` is a technical loss. Ticking **Tools → Bidirectional
+control messages** opts this peer into an extra, out-of-band control channel. It is a **mutual
+handshake**: your side shows *"waiting for opponent to enable…"* until the **other** peer ticks
+the same box; only when **both** have opted in does the panel read **"bidirectional channel
+ACTIVE"**. While active:
+
+- each side continuously **shares its live status** (the `WAITING/THINKING/PLAYING/PAUSED/
+  STOPPED/GAME_OVER/QUIT` states — the book §8.3 turn phases plus the control overlay — with its
+  sub-game number and step-time budget), shown in the **Opponent status** row;
+- **Restart** requests a restart of the **whole series from sub-game 1**; because both sides
+  enabled the channel it is **auto-approved** and both restart together;
+- **Quit** notifies the opponent so it ends cleanly rather than waiting for the timeout.
+
+Nothing here changes the game rules or outcome, so it is a **runtime opt-in, not a signed term**
+— it is never written into `game.json`.
 
 ### Reading the heatmap to improve your strategy
 
@@ -372,7 +404,7 @@ CLI / Tkinter GUI (LivePeerApp, ReplayApp, PeerWindow)   ← presentation only
 ## Development
 
 ```powershell
-uv run pytest -q                                         # full suite (208 tests)
+uv run pytest -q                                         # full suite (253 tests)
 uv run pytest --cov=src --cov-report=term-missing        # coverage ≥ 85%
 uv run ruff check src tests                              # zero violations
 ```
