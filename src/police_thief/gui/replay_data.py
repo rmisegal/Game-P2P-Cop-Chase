@@ -7,6 +7,21 @@ import json
 import re
 from pathlib import Path
 
+from police_thief.domain.crypto import CommitReveal
+from police_thief.exceptions import CryptoError
+
+
+def verify_record(records: list, index: int) -> str:
+    """Re-verify a sealed record against its revealed nonce (replay audit line)."""
+    if index >= len(records):
+        return "-"
+    record = records[index]
+    try:
+        CommitReveal.verify(record["payload"], record["nonce"], record["commit"])
+        return "verified OK"
+    except CryptoError:
+        return "TAMPERED!"
+
 
 def normalize_log(log_data: dict) -> dict:
     """Accept EITHER the legacy match log (records/history/my_log nested under
@@ -93,11 +108,14 @@ def frozen_message(i: int, my_len: int, my_role: str,
     return " | ".join(f"missing {role} step (frozen)" for role in frozen) or None
 
 
-def move_labels(payload: dict, commit: str, verify_status: str) -> dict:
-    """The per-step 'my move' panel labels, derived from a sealed record."""
+def move_labels(payload: dict, commit: str, verify_status: str,
+                step: int | None = None) -> dict:
+    """The per-step 'my move' panel labels, derived from a sealed record. When
+    `step` is given the response line is prefixed with the step number. The Model
+    row is set once from the log's spec, so it is not repeated here."""
+    hint = payload.get("hint", "-")
     return {
-        "hint_out": payload.get("hint", "-"),
-        "model": payload.get("model", "-"),
+        "hint_out": f"step {step}: {hint}" if step is not None else hint,
         "tokens": f"{payload.get('tokens_step', 0):,} / {payload.get('tokens_total', 0):,}",
         "llm_time": f"{payload.get('response_seconds', 0):.2f}"
                     + (" [RANDOM]" if payload.get("random_move") else ""),

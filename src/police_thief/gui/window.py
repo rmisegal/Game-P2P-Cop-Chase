@@ -42,13 +42,15 @@ class PeerWindow:
         panel = tk.Frame(body)
         panel.pack(side="left", fill="y", padx=(10, 0))
         self.labels = {}
-        for key, caption in [("step", "Step"), ("model", "Model"),
+        for key, caption in [("step", "Step"), ("mode", "Game mode"),
+                             ("model", "Model"),
                              ("tokens", "Tokens step / total"),
                              ("llm_time", "LLM response (s)"),
                              ("barriers", "Barriers used"),
                              ("hint_in", "Opponent says"),
-                             ("hint_out", "I said"), ("verdict", "My verdict"),
-                             ("commit", "My commit (sealed)"), ("status", "Status")]:
+                             ("hint_out", "My response"), ("verdict", "My verdict"),
+                             ("commit", "My commit (sealed)"),
+                             ("opp_status", "Opponent status"), ("status", "Status")]:
             tk.Label(panel, text=caption + ":", font=("Segoe UI", 9, "bold"),
                      anchor="w").pack(fill="x")
             self.labels[key] = tk.Label(panel, text="-", anchor="w", wraplength=300,

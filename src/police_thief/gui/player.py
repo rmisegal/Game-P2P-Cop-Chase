@@ -12,6 +12,7 @@ import threading
 import time
 import tkinter as tk
 
+from police_thief.gui.game_mode import mode_and_model
 from police_thief.gui.replay import ReplayApp  # noqa: F401  (re-export for cli)
 from police_thief.gui.window import PeerWindow, title_with_copyright
 
@@ -47,12 +48,15 @@ class LivePeerApp:
         from police_thief.shared.sysinfo import collect_spec
         from police_thief.shared.version import CODE_VERSION
 
+        # Verbal-game mode + model per book Table 22 (the MOVE is always Python).
+        game_mode, model_label = mode_and_model(sdk.config)
         self._window.add_menu({
             "code_version": CODE_VERSION, "role": role,
-            "model": sdk.config.get("llm.model", "") or "cli-default",
+            "game_mode": game_mode, "model": model_label,
             **collect_spec(),
         })
-        self._window.set_label("model", sdk.config.get("llm.model", "") or "cli-default")
+        self._window.set_label("mode", game_mode)
+        self._window.set_label("model", model_label)
         self._window.root.title(self._title_base)
         controls_bar = tk.Frame(self._window.root)
         controls_bar.pack(pady=(0, 6))
@@ -117,18 +121,19 @@ class LivePeerApp:
             window.set_turn(self._role == "thief")  # thief moves first
         elif kind == "incoming":
             message = event["message"]
-            window.set_label("hint_in", message["hint"])
+            window.set_label("hint_in", f"step {message['step']}: {message['hint']}")
             window.set_turn(True)
         elif kind == "moved":
             decision = event["decision"]
             usage = event.get("usage", {})
-            window.set_label("model", usage.get("model", "-"))
+            # The Model/Game-mode rows stay fixed to the Table-22 config mode; the
+            # actual per-step token spend is shown in Tokens / LLM response instead.
             window.set_label("tokens",
                              f"{usage.get('total', 0):,} / {usage.get('match_total', 0):,}")
             window.set_label("llm_time", f"{decision.response_seconds:.2f}"
                              + (" [RANDOM - deadline missed]" if decision.random_move
                                 else ""))
-            window.set_label("hint_out", decision.hint)
+            window.set_label("hint_out", f"step {event['view']['step']}: {decision.hint}")
             window.set_label("verdict", decision.verdict
                              + (" (fallback policy)" if decision.fallback else ""))
             window.set_label("commit", event["commit"][:32] + "...")
