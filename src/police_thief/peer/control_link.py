@@ -26,6 +26,8 @@ class ControlLink:
         self._peer_enabled = False
         self._opponent = {"status": "-", "sub_game_number": None, "step_budget": None}
         self._last_status_key = None
+        self._pending_restart = False   # a peer restart, approved, awaiting the runtime
+        self._opponent_quit = False
 
     @property
     def active(self) -> bool:
@@ -39,6 +41,17 @@ class ControlLink:
     @property
     def opponent(self) -> dict:
         return dict(self._opponent)
+
+    @property
+    def opponent_quit(self) -> bool:
+        return self._opponent_quit
+
+    def take_pending_restart(self) -> bool:
+        """Consume a peer-approved restart (True once), so the runtime restarts."""
+        if self._pending_restart:
+            self._pending_restart = False
+            return True
+        return False
 
     def enable(self) -> None:
         """Local user opted in; announce it so the peer can match (then active)."""
@@ -83,10 +96,11 @@ class ControlLink:
             event = {"type": "control_status", **self._opponent}
         elif msg.kind == "restart":
             if self.active:  # auto-approve when both enabled
-                self._controls.request_restart()
+                self._pending_restart = True
             event = {"type": "control_restart", "granted": self.active}
         elif msg.kind == "quit":
             self._opponent["status"] = QUIT
+            self._opponent_quit = True
             event = {"type": "control_quit", "sender": msg.sender}
         else:
             event = {"type": "control_unknown", "kind": msg.kind}

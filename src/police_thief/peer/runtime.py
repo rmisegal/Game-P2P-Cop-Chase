@@ -10,13 +10,14 @@ token travels with the TurnMessage: receiving one makes this peer 'green'.
 import random
 import time
 
-from police_thief.constants import NO_HINT_PLACEHOLDER, MoveType, Role
+from police_thief.constants import Role
 from police_thief.domain.belief import BeliefGrid
 from police_thief.domain.own_state import OwnGameState
 from police_thief.domain.protocol import TurnMessage
 from police_thief.domain.rules import GameRules
 from police_thief.domain.smell import SmellField
-from police_thief.peer import turn_sender
+from police_thief.peer import runtime_control, turn_sender
+from police_thief.peer.control_link import ControlLink
 from police_thief.peer.controls import GameControls
 from police_thief.peer.sealing import identity_from_config, now_iso, sealed_spec_record
 from police_thief.peer.summary import finish, snapshot
@@ -31,7 +32,7 @@ class PeerRuntime:
     series index and roles alternate across the series."""
 
     def __init__(self, role: Role, config, llm, transport, listener=None, controls=None,
-                 own_identity: dict | None = None, sub_game_number: int = 1):
+                 own_identity: dict | None = None, sub_game_number: int = 1, link=None):
         from police_thief.peer.turn_handler import TurnHandler
 
         self.role = role
@@ -44,6 +45,9 @@ class PeerRuntime:
         self._transport = transport
         self._listen = listener or (lambda event: None)
         self.controls = controls or GameControls()
+        # Shared across the whole series (enable state persists); a default is made
+        # for direct/one-off runtimes. A transport without control methods -> no-op.
+        self.link = link or ControlLink(role.value, transport, self.controls, self._listen)
         size = config.get("board.size")
         start = tuple(config.get(f"positions.{'thief' if role is Role.THIEF else 'cop'}_start"))
         self.state = OwnGameState(role=role, start=start, board_size=size,
@@ -84,10 +88,15 @@ class PeerRuntime:
 
             negotiate(self)
             self._listen({"type": "negotiated", "view": self.view()})
+        runtime_control.pump(self, runtime_control.PLAYING)
         if self.role is Role.THIEF:
             self._take_turn(claim_response=None)
         self._turn_loop()
+        runtime_control.pump(self, runtime_control.GAME_OVER)
         return finish(self)
+
+    def _take_turn(self, claim_response: dict | None) -> None:
+        turn_sender.take_turn(self, claim_response)
 
     def _turn_loop(self) -> None:
         timeout = self._config.get("network.turn_timeout_seconds")
@@ -96,6 +105,10 @@ class PeerRuntime:
         while self._result is None:
             if self.controls.stopped:
                 self._result = ("stopped", "-")
+                return
+            runtime_control.pump(self, runtime_control.WAITING)
+            runtime_control.check(self)
+            if self._result is not None:
                 return
             incoming = self._transport.poll_turn(poll)
             if incoming is None:
@@ -114,36 +127,3 @@ class PeerRuntime:
                 self._result = ("capture", Role.POLICE.value)
             else:
                 self._take_turn(outcome.claim_response)
-
-    def _take_turn(self, claim_response: dict | None) -> None:
-        self.controls.wait_if_paused()
-        if self.controls.stopped:
-            self._result = ("stopped", "-")
-            return
-        opponent_hint = (self.handler.history[-1]["hint"] if self.handler.history
-                         else NO_HINT_PLACEHOLDER)
-        deadline = self.controls.speed  # live GUI slider wins over the config default
-        if deadline is None:
-            deadline = self._config.get("llm.step_deadline_seconds")
-        decision = self.brain.decide(
-            self.state, self.belief, opponent_hint,
-            self._config.get("play.setting"), self._config.get("rules.barriers_max"),
-            deadline_seconds=deadline,
-            short_threshold=self._config.get("llm.short_prompt_threshold_seconds", 0),
-        )
-        if not self.state.apply_move(decision.move_type, decision.direction,
-                                     self._config.get("rules.barriers_max")):
-            self.state.apply_move(MoveType.HOLD, None)  # never stall the loop
-        usage = turn_sender.step_usage_of(self)
-        win = self.rules.thief_result(self.state) if self.role is Role.THIEF else None
-        capture_claim = (
-            list(self.state.position)
-            if self.role is Role.POLICE and decision.move_type is MoveType.MOVE else None
-        )
-        turn_sender.send(self, decision, usage, claim_response, capture_claim,
-                         {"type": win} if win else None)
-        self._listen({"type": "moved", "decision": decision, "view": self.view(),
-                      "commit": self.records[-1]["commit"],
-                      "usage": {**usage, "match_total": self._tokens_total}})
-        if win:
-            self._result = (win, Role.THIEF.value)

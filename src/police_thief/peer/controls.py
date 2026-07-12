@@ -20,6 +20,7 @@ class GameControls:
         self._stop = threading.Event()
         self._restart = threading.Event()   # request a whole-series restart
         self._quit = threading.Event()      # clean quit (also notifies opponent)
+        self._enable = threading.Event()    # opt in to the bidirectional channel
         self._speed: float | None = None  # live step-time budget (sec); None -> config
         self._status_lock = threading.Lock()
         self._status = "READY"
@@ -52,6 +53,13 @@ class GameControls:
     def request_quit(self) -> None:
         self._quit.set()
         self._resume.set()  # release a paused waiter so it notices the quit
+
+    def request_enable(self) -> None:
+        self._enable.set()
+
+    @property
+    def enable_requested(self) -> bool:
+        return self._enable.is_set()
 
     def set_status(self, status: str) -> None:
         with self._status_lock:

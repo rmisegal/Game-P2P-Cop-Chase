@@ -229,3 +229,29 @@ def test_series_matches_across_peers(tmp_path, num_games):
         results["thief"]["result"]["final_result"]["total_score"]
     assert results["police"]["result"]["mutual_agreement"]["sha256"] == \
         results["thief"]["result"]["mutual_agreement"]["sha256"]
+
+
+def test_run_series_restarts_on_restart_signal(monkeypatch):
+    """A RestartSeries from a sub-game restarts the whole series from the top."""
+    from police_thief.exceptions import RestartSeries
+    from police_thief.sdk import series as series_mod
+
+    class Cfg:
+        def get(self, key, default=None):
+            return {"game.num_games": 1}.get(key, default)
+
+    calls = {"n": 0}
+    done = series_mod.SeriesResult([{"ok": True}], {}, {}, "gid", "guid")
+
+    def fake_play_all(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RestartSeries()
+        return done
+
+    monkeypatch.setattr(series_mod, "_play_all", fake_play_all)
+    events = []
+    result = series_mod.run_series(Cfg(), Role.POLICE, None, object(),
+                                   listener=events.append)
+    assert calls["n"] == 2 and result is done
+    assert any(event.get("type") == "series_restart" for event in events)

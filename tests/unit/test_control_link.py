@@ -73,19 +73,18 @@ def test_inbound_status_updates_opponent_view():
 
 
 def test_inbound_restart_auto_approves_only_when_active():
-    controls = GameControls()
-    link = _link(inbound=[{"kind": "restart", "sender": "thief"}], controls=controls)
+    link = _link(inbound=[{"kind": "restart", "sender": "thief"}])
     link.enable()
     link._peer_enabled = True  # both enabled -> active
     link.drain()
-    assert controls.restart_requested
+    assert link.take_pending_restart()          # approved, consumed once
+    assert not link.take_pending_restart()
 
 
 def test_inbound_restart_ignored_when_inactive():
-    controls = GameControls()
-    link = _link(inbound=[{"kind": "restart", "sender": "thief"}], controls=controls)
+    link = _link(inbound=[{"kind": "restart", "sender": "thief"}])
     link.drain()  # channel not active
-    assert not controls.restart_requested
+    assert not link.take_pending_restart()
 
 
 def test_inbound_quit_marks_opponent_quit():
