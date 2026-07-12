@@ -40,6 +40,14 @@ class TestConfigManager:
         assert config.get("smell.decay_per_step") == 0.10
         assert config.get("network.my_port") == 8801
 
+    def test_override_sets_existing_key(self, config):
+        config.override("game.num_games", 6)
+        assert config.get("game.num_games") == 6
+
+    def test_override_creates_missing_section(self, config):
+        config.override("newsec.flag", True)
+        assert config.get("newsec.flag") is True
+
     def test_get_default_when_missing(self, config):
         assert config.get("board.moons", 42) == 42
         assert config.get("nosuch.section.key", "x") == "x"

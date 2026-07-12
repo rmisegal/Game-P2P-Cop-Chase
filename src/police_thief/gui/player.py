@@ -10,9 +10,9 @@ heatmap — the opponent's true position is unknowable by design.
 import queue
 import threading
 import time
-import tkinter as tk
 
 from police_thief.gui.game_mode import mode_and_model
+from police_thief.gui.live_controls import LiveControls, clamp_subgames
 from police_thief.gui.replay import ReplayApp  # noqa: F401  (re-export for cli)
 from police_thief.gui.window import PeerWindow, title_with_copyright
 
@@ -29,12 +29,11 @@ class LivePeerApp:
         from police_thief.peer.controls import GameControls
 
         self._controls = GameControls()
-        game_id = (f"{sdk.config.get('game.group_name', 'unnamed')}"
-                   f"-vs-{sdk.config.get('game.opponent_group_name', 'opponent')}")
+        group = sdk.config.get("game.group_name", "unnamed")
+        opponent = sdk.config.get("game.opponent_group_name", "opponent")
         self._title_base = title_with_copyright(
-            f"{sdk.config.get('game.group_name', 'unnamed')} | "
-            f"sub-game {sdk.config.get('game.sub_game_number', 1)} | "
-            f"{role.upper()}", game_id)
+            f"{group} | sub-game {sdk.config.get('game.sub_game_number', 1)} | "
+            f"{role.upper()}", f"{group}-vs-{opponent}")
         self._t0: float | None = None
         budget = sdk.config.get("llm.step_deadline_seconds", 30)
         self._window = PeerWindow(
@@ -58,11 +57,30 @@ class LivePeerApp:
         self._window.set_label("mode", game_mode)
         self._window.set_label("model", model_label)
         self._window.root.title(self._title_base)
-        controls_bar = tk.Frame(self._window.root)
-        controls_bar.pack(pady=(0, 6))
-        tk.Button(controls_bar, text="Pause", command=self._pause).pack(side="left")
-        tk.Button(controls_bar, text="Play", command=self._play).pack(side="left", padx=6)
-        tk.Button(controls_bar, text="Stop", command=self._stop).pack(side="left")
+        self._started = False
+        self._bar = LiveControls(
+            self._window.root, self, clamp_subgames(sdk.config.get("game.num_games", 1)))
+
+    def _start(self) -> None:
+        """Begin the series: apply the chosen sub-game count, then run the worker."""
+        if self._started:
+            return
+        self._started = True
+        num_games = self._bar.selected_subgames()
+        self._sdk.config.override("game.num_games", num_games)
+        self._bar.mark_started()
+        self._window.set_turn(False, f"STARTING - {num_games} sub-game(s)")
+        threading.Thread(target=self._worker, daemon=True).start()
+        self._window.root.after(1000, self._tick_clock)
+
+    def _quit(self) -> None:
+        """Clean shutdown of THIS peer (P3 also notifies the opponent)."""
+        self._controls.stop()
+        self._window.root.destroy()
+
+    def _restart(self) -> None:
+        # Enabled only under the bidirectional control channel (wired in P3/P4).
+        self._window.set_label("status", "Restart requires bidirectional control")
 
     def _pause(self) -> None:
         self._controls.pause()
@@ -151,9 +169,9 @@ class LivePeerApp:
                                        f"duration: {summary.get('duration_seconds', 0)}s")
 
     def run(self) -> dict:
-        threading.Thread(target=self._worker, daemon=True).start()
+        # The window opens idle; the worker starts only when the user presses Start.
+        self._window.set_turn(False, "READY - choose sub-games, then press Start")
         self._window.root.after(100, self._poll)
-        self._window.root.after(1000, self._tick_clock)
         self._window.root.mainloop()
         return self._outcome or {"summary": {"result": "aborted", "winner": "-",
                                              "steps": 0}, "email": {"sent": False},

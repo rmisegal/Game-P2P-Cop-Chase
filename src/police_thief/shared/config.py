@@ -140,6 +140,15 @@ class ConfigManager:
             node = node[part]
         return node
 
+    def override(self, dotted_key: str, value: Any) -> None:
+        """Set a value by dotted key (live GUI overrides, e.g. game.num_games set
+        from the sub-games dropdown before Start). Creates intermediate sections."""
+        parts = dotted_key.split(".")
+        node = self._game
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = value
+
     @property
     def rate_limits(self) -> dict:
         """The full rate_limits.json contents."""
