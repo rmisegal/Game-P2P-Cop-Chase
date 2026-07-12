@@ -84,6 +84,18 @@ class McpTransport:
         except queue.Empty:
             return None
 
+    def drain_inboxes(self) -> None:
+        """Discard stale turn/control/audit messages so a restarted series starts from
+        a clean slate. Safe because both peers drain BEFORE re-negotiating and no new
+        turn is sent until after the fresh handshake completes (agreements are already
+        empty post-handshake, so they are left untouched)."""
+        for inbox in (self._inboxes.turns, self._inboxes.controls, self._inboxes.audits):
+            try:
+                while True:
+                    inbox.get_nowait()
+            except queue.Empty:
+                pass
+
     def exchange_audit(self, payload: dict) -> dict | None:
         # Best-effort send: the winner's process may exit right after reading its
         # inbox, killing its server mid-response. Our payload usually landed anyway,

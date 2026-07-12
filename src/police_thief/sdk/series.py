@@ -72,6 +72,12 @@ def run_series(config, natural_role: Role, llm, transport,
                              listener, controls, link)
         except RestartSeries:
             attempt += 1
+            # Clear any stale turn/control messages from the aborted sub-game so the
+            # restarted series never consumes them (both peers drain before the fresh
+            # handshake, and no new turn arrives until after it).
+            drain = getattr(transport, "drain_inboxes", None)
+            if drain is not None:
+                drain()
             if listener is not None:
                 listener({"type": "series_restart", "attempt": attempt})
             if attempt > MAX_RESTARTS:

@@ -249,9 +249,18 @@ def test_run_series_restarts_on_restart_signal(monkeypatch):
             raise RestartSeries()
         return done
 
+    class DrainTransport:
+        def __init__(self):
+            self.drained = 0
+
+        def drain_inboxes(self):
+            self.drained += 1
+
     monkeypatch.setattr(series_mod, "_play_all", fake_play_all)
     events = []
-    result = series_mod.run_series(Cfg(), Role.POLICE, None, object(),
+    transport = DrainTransport()
+    result = series_mod.run_series(Cfg(), Role.POLICE, None, transport,
                                    listener=events.append)
     assert calls["n"] == 2 and result is done
+    assert transport.drained == 1  # stale inboxes cleared before the restart
     assert any(event.get("type") == "series_restart" for event in events)
