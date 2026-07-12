@@ -25,12 +25,12 @@ min_center_intensity = 0.5
 emit_intensity = 0.9
 
 [rules]
-max_steps = 50                  # thief survives this many steps -> thief wins
-barriers_max = 20
+max_steps = 35                  # thief survives this many steps -> thief wins (matches game.json)
+barriers_max = 14               # matches game.json (overridden by it when present)
 
 [positions]
 thief_start = [3, 3]
-cop_start = [5, 3]                # (7,5) is off-board on 7x7
+cop_start = [0, 0]                # corner start (matches game.json)
 
 [belief]
 smell_trust_weight = 4.0        # my private tuning (not a signed term)
@@ -68,7 +68,7 @@ log_filename = "{role}_match.json"
 
 [play]
 step_speed_seconds = 1.0        # MY GUI pacing (each peer has its own)
-setting = "New York"            # signed term
+setting = "New York"            # local default; overlaid by the signed game.json world.map_area
 seed = 1234
 
 [network]

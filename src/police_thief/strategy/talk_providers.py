@@ -31,30 +31,37 @@ def resolve_trash_talk(config, rng: random.Random, llm=None) -> TrashTalk:
     provider = str(get("trash_talk.provider", "template")).lower()
     every = get("trash_talk.every_n_steps", 1)
     model = get("trash_talk.model", "")
+    max_words = get("play.hint_max_words", 15)  # negotiated hard cap (world.hint_max_words)
 
     if provider == "template":
-        return TrashTalk(rng)
+        return TrashTalk(rng, max_words)
     if provider == "claude_cli":
         if llm is None:
             logger.warning("trash_talk.provider=claude_cli but no llm; using template")
-            return TrashTalk(rng)
-        return LlmTrashTalk(lambda prompt, _d=None: llm.send(prompt), rng, every, model)
+            return TrashTalk(rng, max_words)
+        # claude -p has no separate system channel here, so prepend it to the prompt.
+        return LlmTrashTalk(
+            lambda prompt, _d=None, system="": llm.send(
+                f"{system}\n\n{prompt}" if system else prompt),
+            rng, every, model, max_words)
     if provider == "ollama":
         url = get("trash_talk.ollama_url", _OLLAMA_DEFAULT)
-        return LlmTrashTalk(_ollama_asker(model or "llama3.2", url), rng, every, model)
+        return LlmTrashTalk(_ollama_asker(model or "llama3.2", url), rng, every, model, max_words)
     if provider == "claude_api":
-        return LlmTrashTalk(_claude_api_asker(model or "claude-haiku-4-5"), rng, every, model)
+        return LlmTrashTalk(_claude_api_asker(model or "claude-haiku-4-5"),
+                            rng, every, model, max_words)
 
     logger.warning("unknown trash_talk.provider %r; using template", provider)
-    return TrashTalk(rng)
+    return TrashTalk(rng, max_words)
 
 
 def _ollama_asker(model: str, url: str):
     """A local Ollama call (stdlib only, no extra dependency)."""
-    def ask(prompt: str, deadline=None) -> str:
-        body = json.dumps(
-            {"model": model, "prompt": prompt, "stream": False, "format": "json"}
-        ).encode()
+    def ask(prompt: str, deadline=None, system: str = "") -> str:
+        payload = {"model": model, "prompt": prompt, "stream": False, "format": "json"}
+        if system:
+            payload["system"] = system  # Ollama's native system-prompt field
+        body = json.dumps(payload).encode()
         request = urllib.request.Request(  # noqa: S310 - fixed localhost Ollama endpoint
             url, data=body, headers={"Content-Type": "application/json"}
         )
@@ -66,14 +73,14 @@ def _ollama_asker(model: str, url: str):
 def _claude_api_asker(model: str):
     """A short Anthropic Messages API call using a SMALL model (default Haiku).
     `anthropic` is imported lazily so it stays an optional dependency."""
-    def ask(prompt: str, deadline=None) -> str:
+    def ask(prompt: str, deadline=None, system: str = "") -> str:
         import anthropic  # optional dep; only needed for provider=claude_api
 
         client = anthropic.Anthropic()
-        message = client.messages.create(
-            model=model,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        kwargs = {"model": model, "max_tokens": 200,
+                  "messages": [{"role": "user", "content": prompt}]}
+        if system:
+            kwargs["system"] = system  # Anthropic Messages API system prompt
+        message = client.messages.create(**kwargs)
         return "".join(block.text for block in message.content if block.type == "text")
     return ask

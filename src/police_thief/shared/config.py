@@ -33,6 +33,16 @@ def _translate_shared(shared: dict) -> dict:
         put("positions", "thief_start", board["thief_start"])
     if "cop_start" in board:
         put("positions", "cop_start", board["cop_start"])
+    if "axis_origin_corner" in board:
+        put("board", "axis_origin_corner", board["axis_origin_corner"])
+    if "axis_start_index" in board:
+        put("board", "axis_start_index", board["axis_start_index"])
+
+    world = shared.get("world", {})
+    if "map_area" in world:  # the agreed real-world area drives location-based hints
+        put("play", "setting", world["map_area"])
+    if "hint_max_words" in world:  # agreed hard cap on trash-talk hint length
+        put("play", "hint_max_words", world["hint_max_words"])
 
     mov = shared.get("movement_and_barriers", {})
     if "move_set" in mov:

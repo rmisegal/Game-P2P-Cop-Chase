@@ -51,13 +51,19 @@ class TrashTalk:
     every_n_steps = 1
     uses_llm = False
 
-    def __init__(self, rng: random.Random | None = None):
+    def __init__(self, rng: random.Random | None = None, max_words: int = 15):
         self._rng = rng or random.Random()
         self._turn = 0
+        self.max_words = max(1, int(max_words))  # agreed hard cap on hint length
+
+    def _cap(self, hint: str) -> str:
+        """Enforce the negotiated word limit on any hint before it goes on the wire."""
+        words = hint.split()
+        return hint if len(words) <= self.max_words else " ".join(words[:self.max_words])
 
     def say(self, role, state, belief, setting, opponent_hint, deadline=None):
         hint, verdict = self._template(role, setting)
-        return hint, verdict, "", ""  # (hint, verdict, reasoning, prompt)
+        return self._cap(hint), verdict, "", ""  # (hint, verdict, reasoning, prompt)
 
     def _template(self, role: Role, setting: str) -> tuple[str, str]:
         landmark = self._rng.choice(LANDMARKS.get(setting, _DEFAULT_LANDMARKS))
@@ -76,9 +82,9 @@ class LlmTrashTalk(TrashTalk):
 
     uses_llm = True
 
-    def __init__(self, ask, rng=None, every_n_steps=1, model=""):
-        super().__init__(rng)
-        self._ask = ask  # ask(prompt, deadline) -> raw model reply (JSON string)
+    def __init__(self, ask, rng=None, every_n_steps=1, model="", max_words=15):
+        super().__init__(rng, max_words)
+        self._ask = ask  # ask(prompt, deadline, system) -> raw model reply (JSON string)
         self.every_n_steps = max(1, int(every_n_steps or 1))
         self._model = model
 
@@ -86,40 +92,49 @@ class LlmTrashTalk(TrashTalk):
         self._turn += 1
         if self._turn % self.every_n_steps != 0:  # free, template-only step
             hint, verdict = self._template(role, setting)
-            return hint, verdict, "", ""
-        prompt = self._prompt(role, setting, opponent_hint)
+            return self._cap(hint), verdict, "", ""
+        system, user = self._system(setting), self._user(role, opponent_hint)
+        logged = f"[system]\n{system}\n\n[user]\n{user}"  # full context, sealed for audit
         try:
-            data = json.loads(_extract_json(self._ask_bounded(prompt, deadline)))
+            data = json.loads(_extract_json(self._ask_bounded(user, deadline, system)))
             hint = str(data["message"]).strip()
             if hint:
                 verdict = str(data.get("verdict", VERDICT_TRUTH))
-                return hint, verdict, str(data.get("reasoning", "")).strip(), prompt
+                return self._cap(hint), verdict, str(data.get("reasoning", "")).strip(), logged
         except Exception as exc:  # any failure => safe template fallback
             logger.warning("trash-talk LLM failed (%s); using template", exc)
         hint, verdict = self._template(role, setting)
-        return hint, verdict, "", prompt  # prompt still logged even on fallback
+        return self._cap(hint), verdict, "", logged  # prompt still logged even on fallback
 
-    def _ask_bounded(self, prompt: str, deadline):
+    def _ask_bounded(self, prompt: str, deadline, system: str):
         if not deadline:
-            return self._ask(prompt, deadline)
+            return self._ask(prompt, deadline, system)
         executor = ThreadPoolExecutor(max_workers=1)
         try:
-            return executor.submit(self._ask, prompt, deadline).result(timeout=deadline)
+            return executor.submit(self._ask, prompt, deadline,
+                                   system).result(timeout=deadline)
         except FutureTimeout as exc:
             raise TimeoutError(f"trash-talk exceeded {deadline}s deadline") from exc
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    @staticmethod
-    def _prompt(role: Role, setting: str, opponent_hint: str) -> str:
-        who = "THIEF" if role is Role.THIEF else "COP"
+    def _system(self, setting: str) -> str:
+        """System prompt: pins the agreed real-world map area AND the negotiated word
+        limit, so the model taunts with a landmark from THIS game's `world.map_area`
+        and never exceeds `world.hint_max_words`."""
+        area = setting or "an unnamed city"
         return (
-            f"You are the {who} in a cop-and-thief chase set in {setting}. "
-            f'The opponent just said: "{opponent_hint}". Reply with ONE short taunt '
-            f"that names a {setting} landmark. You MAY lie about where you are. "
-            'STRICT JSON only: {"message": "<taunt>", "verdict": "truth|lie", '
-            '"reasoning": "<why, one clause>"}'
+            f"You are a witty agent in a cop-and-thief chase set in {area}. Every "
+            f"taunt you write MUST name a real {area} landmark and use no more than "
+            f"{self.max_words} words. You MAY lie about where you actually are. "
+            'Answer with STRICT JSON only: {"message": "<taunt>", "verdict": '
+            '"truth|lie", "reasoning": "<why, one clause>"}'
         )
+
+    @staticmethod
+    def _user(role: Role, opponent_hint: str) -> str:
+        who = "THIEF" if role is Role.THIEF else "COP"
+        return f'You are the {who}. The opponent just said: "{opponent_hint}". Reply now.'
 
 
 def _extract_json(text: str) -> str:

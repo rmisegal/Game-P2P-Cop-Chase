@@ -18,7 +18,7 @@ def _state():
 class TestReasoningCapture:
     def test_llm_trash_talk_yields_reasoning_and_prompt(self):
         reply = '{"message": "near soho", "verdict": "lie", "reasoning": "bluff north"}'
-        hint, verdict, reasoning, prompt = LlmTrashTalk(lambda p, d=None: reply).say(
+        hint, verdict, reasoning, prompt = LlmTrashTalk(lambda p, d=None, s=None: reply).say(
             Role.THIEF, None, None, "London", "hi")
         assert hint == "near soho"
         assert verdict == "lie"

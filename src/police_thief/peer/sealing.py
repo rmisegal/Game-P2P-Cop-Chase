@@ -90,7 +90,10 @@ def terms_from_config(cfg) -> dict:
         "decay_per_step": cfg.get("smell.decay_per_step"),
         "max_steps": cfg.get("rules.max_steps"),
         "barriers_max": cfg.get("rules.barriers_max"),
-        "setting": cfg.get("play.setting"),
+        "setting": cfg.get("play.setting"),  # the agreed real-world map area (world.map_area)
+        "hint_max_words": cfg.get("play.hint_max_words", 15),
+        "axis_origin_corner": cfg.get("board.axis_origin_corner", "top-left"),
+        "axis_start_index": cfg.get("board.axis_start_index", 0),
         "thief_start": cfg.get("positions.thief_start"),
         "cop_start": cfg.get("positions.cop_start"),
         "num_games": cfg.get("game.num_games", 1),
