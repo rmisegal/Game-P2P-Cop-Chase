@@ -45,3 +45,8 @@ class CryptoError(SimulationError):
 
 class RateLimitError(SimulationError):
     """Gatekeeper queue overflow or timeout."""
+
+
+class RestartSeries(SimulationError):  # noqa: N818 - a control-flow signal, not an error
+    """Control-channel signal: abort the current sub-game and restart the whole
+    series from sub-game 1 (both peers, auto-approved when bidirectional is on)."""

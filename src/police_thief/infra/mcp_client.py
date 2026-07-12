@@ -23,12 +23,13 @@ class McpTransport:
 
     def __init__(self, opponent_url: str, inboxes: PeerInboxes,
                  connect_timeout: float = 60.0, retry_interval: float = 1.0,
-                 audit_send_timeout: float = 10.0):
+                 audit_send_timeout: float = 10.0, control_send_timeout: float = 2.0):
         self._url = opponent_url
         self._inboxes = inboxes
         self._connect_timeout = connect_timeout
         self._retry = retry_interval
         self._audit_timeout = audit_send_timeout
+        self._control_timeout = control_send_timeout
 
     def _call(self, tool: str, argument: dict) -> None:
         async def invoke():
@@ -68,6 +69,32 @@ class McpTransport:
             return self._inboxes.turns.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    def send_control(self, message: dict) -> None:
+        """Best-effort control send: a short timeout + suppressed error so a slow or
+        departed opponent never stalls the game loop (control msgs are advisory)."""
+        with contextlib.suppress(SimulationError):
+            self._call_with_retry("receive_control", message,
+                                  timeout=self._control_timeout)
+
+    def poll_control(self) -> dict | None:
+        """Non-blocking drain of one pending control message (None if the inbox is empty)."""
+        try:
+            return self._inboxes.controls.get_nowait()
+        except queue.Empty:
+            return None
+
+    def drain_inboxes(self) -> None:
+        """Discard stale turn/control/audit messages so a restarted series starts from
+        a clean slate. Safe because both peers drain BEFORE re-negotiating and no new
+        turn is sent until after the fresh handshake completes (agreements are already
+        empty post-handshake, so they are left untouched)."""
+        for inbox in (self._inboxes.turns, self._inboxes.controls, self._inboxes.audits):
+            try:
+                while True:
+                    inbox.get_nowait()
+            except queue.Empty:
+                pass
 
     def exchange_audit(self, payload: dict) -> dict | None:
         # Best-effort send: the winner's process may exit right after reading its

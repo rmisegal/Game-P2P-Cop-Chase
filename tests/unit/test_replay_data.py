@@ -3,12 +3,14 @@ sub-game discovery, and the per-step move-label mapping."""
 
 import json
 
+from police_thief.domain.crypto import CommitReveal
 from police_thief.gui.replay_data import (
     discover_subgames,
     frozen_message,
     move_labels,
     opponent_positions,
     subgame_log_path,
+    verify_record,
 )
 
 GAME_ID = "team-a-vs-team-b"
@@ -42,6 +44,22 @@ def test_move_labels_defaults_when_empty():
     assert labels["hint_out"] == "-"
     assert labels["tokens"] == "0 / 0"
     assert "[RANDOM]" not in labels["llm_time"]
+    assert "model" not in labels  # model row is set once from the log spec
+
+
+def test_move_labels_prefixes_step_when_given():
+    labels = move_labels({"hint": "hi"}, "-", "-", step=7)
+    assert labels["hint_out"] == "step 7: hi"
+
+
+def test_verify_record_ok_and_tampered():
+    payload = {"step": 1, "x": 1}
+    sealed = CommitReveal.seal(payload)
+    records = [{"payload": payload, "nonce": sealed["nonce"], "commit": sealed["commit"]}]
+    assert verify_record(records, 0) == "verified OK"
+    assert verify_record(records, 5) == "-"  # out of range
+    records[0]["commit"] = "deadbeef"
+    assert verify_record(records, 0) == "TAMPERED!"
 
 
 def test_frozen_message_none_while_both_move():

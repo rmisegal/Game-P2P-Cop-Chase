@@ -10,8 +10,7 @@ opponent's sibling log is found, BOTH true positions are drawn on the one board.
 import json
 
 from police_thief.domain.belief import BeliefGrid
-from police_thief.domain.crypto import CommitReveal
-from police_thief.exceptions import CryptoError
+from police_thief.gui.game_mode import mode_from_recorded_model
 from police_thief.gui.replay_data import (  # noqa: F401  (normalize_log re-exported)
     discover_subgames,
     frozen_message,
@@ -19,6 +18,7 @@ from police_thief.gui.replay_data import (  # noqa: F401  (normalize_log re-expo
     normalize_log,
     opponent_positions,
     subgame_log_path,
+    verify_record,
 )
 
 _OPPONENT = {"police": "thief", "thief": "police", "cop": "thief"}
@@ -57,11 +57,13 @@ class ReplayApp:
         self._opponent_role = _OPPONENT.get(self._role, "thief")
         spec = next((r["payload"] for r in view["records"]
                      if r["payload"].get("type") == "system_spec"), {})
+        game_mode, model_label = mode_from_recorded_model(spec.get("model", ""))
         self._window.add_menu({
             "code_version": spec.get("code_version", "-"),
-            "model": spec.get("model", "-"), **spec.get("spec", {}),
+            "game_mode": game_mode, "model": model_label, **spec.get("spec", {}),
         })
-        self._window.set_label("model", spec.get("model", "-"))
+        self._window.set_label("mode", game_mode)
+        self._window.set_label("model", model_label)
         self._window.root.title(
             f"REPLAY: {view['group']} | sub-game {self._sub_game} | "
             f"{self._role} | {view['duration_seconds']}s"
@@ -78,16 +80,6 @@ class ReplayApp:
         # that moved more times are still shown (the shorter one freezes).
         return max(len(self._my_log), len(self._history), len(self._opponent_pos))
 
-    def _verify_record(self, index: int) -> str:
-        if index >= len(self._records):
-            return "-"
-        record = self._records[index]
-        try:
-            CommitReveal.verify(record["payload"], record["nonce"], record["commit"])
-            return "verified OK"
-        except CryptoError:
-            return "TAMPERED!"
-
     def _advance(self) -> None:
         steps = self._total_steps()
         if self._index >= steps:
@@ -103,8 +95,8 @@ class ReplayApp:
             if entry.get("barrier"):
                 self._barriers.add(tuple(entry["barrier"]))
             record = self._records[i] if i < len(self._records) else {}
-            labels = move_labels(record.get("payload", {}),
-                                 record.get("commit", "-"), self._verify_record(i))
+            labels = move_labels(record.get("payload", {}), record.get("commit", "-"),
+                                 verify_record(self._records, i), step=i + 1)
             for key, value in labels.items():
                 self._window.set_label(key, value)
         if i < len(self._history):
@@ -113,7 +105,7 @@ class ReplayApp:
             self._belief.observe_smell(message["smell_grid"])
             if message.get("barrier_placed"):
                 self._barriers.add(tuple(message["barrier_placed"]))
-            self._window.set_label("hint_in", message["hint"])
+            self._window.set_label("hint_in", f"step {i + 1}: {message['hint']}")
         my_len, opp_len = len(self._my_log), len(self._opponent_pos)
         position = tuple(self._my_log[min(i, my_len - 1)]["position"]) if my_len else None
         opp = tuple(self._opponent_pos[min(i, opp_len - 1)]) if opp_len else None

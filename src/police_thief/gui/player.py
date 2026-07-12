@@ -10,8 +10,10 @@ heatmap — the opponent's true position is unknowable by design.
 import queue
 import threading
 import time
-import tkinter as tk
 
+from police_thief.gui import live_apply
+from police_thief.gui.game_mode import mode_and_model
+from police_thief.gui.live_controls import LiveControls, clamp_subgames
 from police_thief.gui.replay import ReplayApp  # noqa: F401  (re-export for cli)
 from police_thief.gui.window import PeerWindow, title_with_copyright
 
@@ -28,12 +30,11 @@ class LivePeerApp:
         from police_thief.peer.controls import GameControls
 
         self._controls = GameControls()
-        game_id = (f"{sdk.config.get('game.group_name', 'unnamed')}"
-                   f"-vs-{sdk.config.get('game.opponent_group_name', 'opponent')}")
+        group = sdk.config.get("game.group_name", "unnamed")
+        opponent = sdk.config.get("game.opponent_group_name", "opponent")
         self._title_base = title_with_copyright(
-            f"{sdk.config.get('game.group_name', 'unnamed')} | "
-            f"sub-game {sdk.config.get('game.sub_game_number', 1)} | "
-            f"{role.upper()}", game_id)
+            f"{group} | sub-game {sdk.config.get('game.sub_game_number', 1)} | "
+            f"{role.upper()}", f"{group}-vs-{opponent}")
         self._t0: float | None = None
         budget = sdk.config.get("llm.step_deadline_seconds", 30)
         self._window = PeerWindow(
@@ -47,18 +48,55 @@ class LivePeerApp:
         from police_thief.shared.sysinfo import collect_spec
         from police_thief.shared.version import CODE_VERSION
 
+        # Verbal-game mode + model per book Table 22 (the MOVE is always Python).
+        game_mode, model_label = mode_and_model(sdk.config)
+        self._bidi_i = False   # I opted into the bidirectional channel
+        self._bidi_peer = False  # the opponent opted in
         self._window.add_menu({
             "code_version": CODE_VERSION, "role": role,
-            "model": sdk.config.get("llm.model", "") or "cli-default",
+            "game_mode": game_mode, "model": model_label,
             **collect_spec(),
-        })
-        self._window.set_label("model", sdk.config.get("llm.model", "") or "cli-default")
+        }, on_bidirectional=self._toggle_bidirectional)
+        self._window.set_label("mode", game_mode)
+        self._window.set_label("model", model_label)
         self._window.root.title(self._title_base)
-        controls_bar = tk.Frame(self._window.root)
-        controls_bar.pack(pady=(0, 6))
-        tk.Button(controls_bar, text="Pause", command=self._pause).pack(side="left")
-        tk.Button(controls_bar, text="Play", command=self._play).pack(side="left", padx=6)
-        tk.Button(controls_bar, text="Stop", command=self._stop).pack(side="left")
+        self._started = False
+        self._bar = LiveControls(
+            self._window.root, self, clamp_subgames(sdk.config.get("game.num_games", 1)))
+
+    def _start(self) -> None:
+        """Begin the series: apply the chosen sub-game count, then run the worker."""
+        if self._started:
+            return
+        self._started = True
+        num_games = self._bar.selected_subgames()
+        self._sdk.config.override("game.num_games", num_games)
+        self._bar.mark_started()
+        self._window.set_turn(False, f"STARTING - {num_games} sub-game(s)")
+        threading.Thread(target=self._worker, daemon=True).start()
+        self._window.root.after(1000, self._tick_clock)
+
+    def _quit(self) -> None:
+        """Clean shutdown of THIS peer; the runtime sends a quit notice to the
+        opponent on its next control check, so give it a moment before closing."""
+        self._controls.request_quit()
+        self._controls.stop()
+        self._window.set_turn(False, "QUITTING - notifying opponent...")
+        self._window.root.after(400, self._window.root.destroy)
+
+    def _restart(self) -> None:
+        """Ask the opponent to restart the whole series (auto-approved when active)."""
+        self._controls.request_restart()
+        self._window.set_turn(False, "RESTART requested (whole series)")
+
+    def _toggle_bidirectional(self, enabled: bool) -> None:
+        """Tools menu: opt into the bidirectional control channel (one-way for the
+        session). Active only once the opponent opts in too."""
+        if enabled and not self._bidi_i:
+            self._bidi_i = True
+            self._controls.request_enable()
+            self._window.set_label("opp_status", "waiting for opponent to enable...")
+            live_apply.activate_if_ready(self)
 
     def _pause(self) -> None:
         self._controls.pause()
@@ -104,51 +142,12 @@ class LivePeerApp:
         self._window.root.after(100, self._poll)
 
     def _apply(self, event: dict) -> None:
-        window = self._window
-        kind = event["type"]
-        if kind == "error":
-            window.set_turn(False, "ERROR - see status")
-            window.set_label("status", event["message"])
-            return
-        window.render(event["view"])
-        if kind == "negotiated":
-            self._t0 = time.monotonic()  # game clock starts at agreement
-            window.set_label("status", "Agreement signed & verified (SHA-256)")
-            window.set_turn(self._role == "thief")  # thief moves first
-        elif kind == "incoming":
-            message = event["message"]
-            window.set_label("hint_in", message["hint"])
-            window.set_turn(True)
-        elif kind == "moved":
-            decision = event["decision"]
-            usage = event.get("usage", {})
-            window.set_label("model", usage.get("model", "-"))
-            window.set_label("tokens",
-                             f"{usage.get('total', 0):,} / {usage.get('match_total', 0):,}")
-            window.set_label("llm_time", f"{decision.response_seconds:.2f}"
-                             + (" [RANDOM - deadline missed]" if decision.random_move
-                                else ""))
-            window.set_label("hint_out", decision.hint)
-            window.set_label("verdict", decision.verdict
-                             + (" (fallback policy)" if decision.fallback else ""))
-            window.set_label("commit", event["commit"][:32] + "...")
-            window.set_turn(False)
-        elif kind == "game_over":
-            summary = event["summary"]
-            audit = summary["audit"]
-            verdict = "PASSED" if audit["passed"] else "FAILED"
-            window.set_turn(False, f"GAME OVER: {summary['result']} - "
-                                   f"winner {summary['winner'].upper()}")
-            self._t0 = None  # freeze the title clock
-            window.set_label("status", f"Audit {verdict}: "
-                                       f"{audit['verified_steps']} steps verified | "
-                                       f"tokens total: {summary.get('tokens_total', 0):,} | "
-                                       f"duration: {summary.get('duration_seconds', 0)}s")
+        live_apply.apply_event(self, event)
 
     def run(self) -> dict:
-        threading.Thread(target=self._worker, daemon=True).start()
+        # The window opens idle; the worker starts only when the user presses Start.
+        self._window.set_turn(False, "READY - choose sub-games, then press Start")
         self._window.root.after(100, self._poll)
-        self._window.root.after(1000, self._tick_clock)
         self._window.root.mainloop()
         return self._outcome or {"summary": {"result": "aborted", "winner": "-",
                                              "steps": 0}, "email": {"sent": False},

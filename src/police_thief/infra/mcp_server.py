@@ -41,6 +41,7 @@ class PeerInboxes:
         self.agreements: queue.Queue = queue.Queue()
         self.turns: queue.Queue = queue.Queue()
         self.audits: queue.Queue = queue.Queue()
+        self.controls: queue.Queue = queue.Queue()  # bidirectional control channel
 
 
 def build_peer_server(role: str, inboxes: PeerInboxes) -> FastMCP:
@@ -63,6 +64,12 @@ def build_peer_server(role: str, inboxes: PeerInboxes) -> FastMCP:
     def submit_audit(payload: dict) -> dict:
         """Receive the opponent's end-of-game audit reveal (records + nonces)."""
         inboxes.audits.put(payload)
+        return {"ok": True}
+
+    @mcp.tool
+    def receive_control(message: dict) -> dict:
+        """Receive an opponent control signal (enable / status / restart / quit)."""
+        inboxes.controls.put(message)
         return {"ok": True}
 
     return mcp

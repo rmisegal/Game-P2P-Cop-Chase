@@ -41,6 +41,31 @@ class TurnMessage:
 
 
 @dataclass
+class ControlMessage:
+    """Out-of-band control signal on the opt-in bidirectional control channel.
+
+    NOT part of the sealed game record. Carries a peer's live status and its
+    enable/restart/quit intents so each side can see the other's state and
+    coordinate a whole-series restart or a clean quit.
+    """
+
+    kind: str                          # "enable" | "status" | "restart" | "quit"
+    sender: str                        # "thief" | "police"
+    sub_game_number: int = 1
+    status: str = ""                   # WAITING/THINKING/PLAYING/PAUSED/STOPPED/...
+    step_budget: float = 0.0           # live per-step time budget (seconds)
+    payload: dict | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ControlMessage":
+        allowed = {f.name for f in fields(cls)}
+        return cls(**{key: value for key, value in data.items() if key in allowed})
+
+
+@dataclass
 class AuditPayload:
     """End-of-game reveal: full sealed records so the opponent can re-verify."""
 
