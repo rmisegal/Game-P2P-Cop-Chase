@@ -2,90 +2,80 @@
 # All rights reserved. Educational Use EULA - see LICENSE. Contact: segal@gal-tech.ai
 """ReplayApp: the mandatory Visual Replay Player (book section 7).
 
-Feeds a saved match log back through the pure domain (belief grid rebuilds
-from the recorded smell grids) and re-verifies each step's commit hash live,
-showing hint, verdict reveal, smell, and crypto status per step.
+Feeds a saved match log back through the pure domain (belief grid rebuilds from
+the recorded smell grids) and re-verifies each step's commit hash live. When the
+opponent's sibling log is found, BOTH true positions are drawn on the one board.
 """
 
 import json
-import tkinter as tk
 
 from police_thief.domain.belief import BeliefGrid
 from police_thief.domain.crypto import CommitReveal
 from police_thief.exceptions import CryptoError
+from police_thief.gui.replay_data import (  # noqa: F401  (normalize_log re-exported)
+    discover_subgames,
+    move_labels,
+    normalize_log,
+    opponent_positions,
+    subgame_log_path,
+)
 
-
-def normalize_log(log_data: dict) -> dict:
-    """Accept EITHER the legacy match log (records/history/my_log nested under
-    'summary') OR the standardized template log (records at top level, no smell
-    'history'). Returns a uniform view; when the smell history is absent the
-    belief heatmap simply stays flat while crypto re-verification still runs."""
-    summary = log_data.get("summary", {})
-    records = log_data.get("records") or summary.get("records", [])
-    my_log = summary.get("my_log")
-    if my_log is None:  # standardized format: rebuild a minimal move log from records
-        my_log = [
-            {"position": r["payload"].get("position", [0, 0]), "barrier": None}
-            for r in records
-            if r.get("payload", {}).get("type") != "system_spec"
-        ]
-    return {
-        "summary": summary,
-        "records": records,
-        "history": summary.get("history", []),
-        "my_log": my_log,
-        "role": summary.get("role", "-"),
-        "result": summary.get("result", "-"),
-        "winner": summary.get("winner") or summary.get("winner_role", "-"),
-        "group": summary.get("group_name") or summary.get("group_id", "unnamed"),
-        "sub_game_number": summary.get("sub_game_number", 1),
-        "duration_seconds": summary.get("duration_seconds", 0),
-        "audit": summary.get("audit", {"passed": True}),
-    }
+_OPPONENT = {"police": "thief", "thief": "police", "cop": "thief"}
 
 
 class ReplayApp:
-    """Steps through one peer's saved log with play/pause + speed control."""
+    """Steps through one peer's saved log with play/pause, restart, jump-to-step,
+    sub-game switching, and the opponent overlaid on the same board."""
 
-    def __init__(self, config, log_data: dict):
+    def __init__(self, config, log_data: dict, log_path=None):
+        from police_thief.gui.replay_controls import build_controls
         from police_thief.gui.window import PeerWindow
 
+        self._config = config
+        self._log_path = log_path
+        self._size = config.get("board.size")
+        self._game_id = log_data.get("game_id", "")
+        self._window = PeerWindow("REPLAY", self._size,
+                                  config.get("play.step_speed_seconds"), self._game_id)
+        self._ingest(log_data)
+        subs = discover_subgames(log_path, log_data)
+        build_controls(self, subs, self._sub_game)
+
+    def _ingest(self, log_data: dict) -> None:
+        """Load one sub-game's log into the player and reset stepping state."""
         view = normalize_log(log_data)
-        self._summary = view["summary"]
-        self._records = view["records"]
+        self._records = [r for r in view["records"]
+                         if r["payload"].get("type") != "system_spec"]
         self._history = view["history"]
         self._my_log = view["my_log"]
         self._role = view["role"]
-        self._result = view["result"]
-        self._winner = view["winner"]
-        self._audit = view["audit"]
-        size = config.get("board.size")
-        self._belief = BeliefGrid(board_size=size)
-        self._barriers: set = set()
-        self._visited: set = set()
-        self._index = 0
-        self._playing = False
-        self._window = PeerWindow(
-            f"REPLAY: {view['group']} | sub-game {view['sub_game_number']} | "
-            f"{view['role']} | {view['duration_seconds']}s",
-            size, config.get("play.step_speed_seconds"))
-        spec = next((r["payload"] for r in self._records
+        self._result, self._winner, self._audit = (
+            view["result"], view["winner"], view["audit"])
+        self._sub_game = view["sub_game_number"]
+        self._opponent_pos = opponent_positions(self._log_path, log_data)
+        self._opponent_role = _OPPONENT.get(self._role, "thief")
+        spec = next((r["payload"] for r in view["records"]
                      if r["payload"].get("type") == "system_spec"), {})
-        if spec:
-            self._window.add_about_button({
-                "code_version": spec.get("code_version", "-"),
-                "model": spec.get("model", "-"), **spec.get("spec", {}),
-            })
-            self._window.set_label("model", spec.get("model", "-"))
-        self._records = [r for r in self._records
-                         if r["payload"].get("type") != "system_spec"]
-        controls = tk.Frame(self._window.root)
-        controls.pack(pady=(0, 8))
-        tk.Button(controls, text="Play / Pause", command=self._toggle).pack(side="left")
-        tk.Button(controls, text="Step >", command=self._advance).pack(side="left", padx=6)
+        self._window.add_menu({
+            "code_version": spec.get("code_version", "-"),
+            "model": spec.get("model", "-"), **spec.get("spec", {}),
+        })
+        self._window.set_label("model", spec.get("model", "-"))
+        self._window.root.title(
+            f"REPLAY: {view['group']} | sub-game {self._sub_game} | "
+            f"{self._role} | {view['duration_seconds']}s"
+            f"  |  Game: {self._game_id}  -  (c) 2026 Dr. Yoram Segal - all rights reserved")
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._belief = BeliefGrid(board_size=self._size)
+        self._barriers, self._visited = set(), set()
+        self._index, self._playing = 0, False
+
+    def _total_steps(self) -> int:
+        return max(len(self._my_log), len(self._history))
 
     def _verify_record(self, index: int) -> str:
-        """Re-verify my sealed record for this step against its revealed nonce."""
         if index >= len(self._records):
             return "-"
         record = self._records[index]
@@ -96,10 +86,11 @@ class ReplayApp:
             return "TAMPERED!"
 
     def _advance(self) -> None:
-        steps = max(len(self._my_log), len(self._history))
+        steps = self._total_steps()
         if self._index >= steps:
             self._window.set_turn(False, f"REPLAY DONE: {self._result} - "
-                                         f"winner {str(self._winner).upper()}")
+                                         f"winner {str(self._winner).upper()} "
+                                         f"(press Restart to replay)")
             self._playing = False
             return
         i = self._index
@@ -109,18 +100,10 @@ class ReplayApp:
             if entry.get("barrier"):
                 self._barriers.add(tuple(entry["barrier"]))
             record = self._records[i] if i < len(self._records) else {}
-            payload = record.get("payload", {})
-            self._window.set_label("hint_out", payload.get("hint", "-"))
-            self._window.set_label("model", payload.get("model", "-"))
-            self._window.set_label(
-                "tokens",
-                f"{payload.get('tokens_step', 0):,} / {payload.get('tokens_total', 0):,}")
-            self._window.set_label(
-                "llm_time", f"{payload.get('response_seconds', 0):.2f}"
-                            + (" [RANDOM]" if payload.get("random_move") else ""))
-            self._window.set_label("verdict", f"{payload.get('verdict', '-')} (revealed)")
-            self._window.set_label(
-                "commit", f"{record.get('commit', '-')[:24]}... [{self._verify_record(i)}]")
+            labels = move_labels(record.get("payload", {}),
+                                 record.get("commit", "-"), self._verify_record(i))
+            for key, value in labels.items():
+                self._window.set_label(key, value)
         if i < len(self._history):
             message = self._history[i]
             self._belief.diffuse()
@@ -129,16 +112,41 @@ class ReplayApp:
                 self._barriers.add(tuple(message["barrier_placed"]))
             self._window.set_label("hint_in", message["hint"])
         position = tuple(self._my_log[min(i, len(self._my_log) - 1)]["position"])
+        opp = (tuple(self._opponent_pos[min(i, len(self._opponent_pos) - 1)])
+               if self._opponent_pos else None)
         self._window.render({
             "role": self._role, "step": i + 1, "position": position,
             "barriers": self._barriers, "visited": self._visited,
             "belief": self._belief.as_matrix(),
+            "opponent_position": opp, "opponent_role": self._opponent_role,
         })
-        audit = self._audit
+        both = " | BOTH agents shown" if self._opponent_pos else " | opponent log missing"
         self._window.set_label(
             "status", f"step {i + 1}/{steps} | opponent audit: "
-                      f"{'PASSED' if audit['passed'] else 'FAILED'}")
+                      f"{'PASSED' if self._audit['passed'] else 'FAILED'}{both}")
         self._index += 1
+
+    def _restart(self) -> None:
+        self._reset_state()
+        self._window.render({
+            "role": self._role, "step": 0, "position": None, "barriers": set(),
+            "visited": set(), "belief": self._belief.as_matrix()})
+        self._window.set_turn(False, "RESTARTED - press Play")
+
+    def _goto(self, step: int) -> None:
+        self._reset_state()
+        target = max(1, min(step, self._total_steps()))
+        for _ in range(target):
+            self._advance()
+
+    def _select_subgame(self, sub: int) -> None:
+        path = subgame_log_path(self._log_path, {"game_id": self._game_id}, sub)
+        if not path.exists():
+            self._window.set_label("status", f"sub-game log not found: {path.name}")
+            return
+        self._log_path = str(path)
+        self._ingest(json.loads(path.read_text(encoding="utf-8")))
+        self._window.set_turn(False, f"Loaded sub-game {sub} - press Play")
 
     def _toggle(self) -> None:
         self._playing = not self._playing

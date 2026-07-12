@@ -13,7 +13,7 @@ import time
 import tkinter as tk
 
 from police_thief.gui.replay import ReplayApp  # noqa: F401  (re-export for cli)
-from police_thief.gui.window import PeerWindow
+from police_thief.gui.window import PeerWindow, title_with_copyright
 
 
 class LivePeerApp:
@@ -28,9 +28,12 @@ class LivePeerApp:
         from police_thief.peer.controls import GameControls
 
         self._controls = GameControls()
-        self._title_base = (f"{sdk.config.get('game.group_name', 'unnamed')} | "
-                            f"sub-game {sdk.config.get('game.sub_game_number', 1)} | "
-                            f"{role.upper()}")
+        game_id = (f"{sdk.config.get('game.group_name', 'unnamed')}"
+                   f"-vs-{sdk.config.get('game.opponent_group_name', 'opponent')}")
+        self._title_base = title_with_copyright(
+            f"{sdk.config.get('game.group_name', 'unnamed')} | "
+            f"sub-game {sdk.config.get('game.sub_game_number', 1)} | "
+            f"{role.upper()}", game_id)
         self._t0: float | None = None
         budget = sdk.config.get("llm.step_deadline_seconds", 30)
         self._window = PeerWindow(
@@ -44,7 +47,7 @@ class LivePeerApp:
         from police_thief.shared.sysinfo import collect_spec
         from police_thief.shared.version import CODE_VERSION
 
-        self._window.add_about_button({
+        self._window.add_menu({
             "code_version": CODE_VERSION, "role": role,
             "model": sdk.config.get("llm.model", "") or "cli-default",
             **collect_spec(),

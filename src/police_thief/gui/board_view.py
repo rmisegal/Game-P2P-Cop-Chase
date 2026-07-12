@@ -33,8 +33,18 @@ class BoardView(tk.Canvas):
         green_blue = int(255 * (1 - 0.8 * level))
         return f"#ff{green_blue:02x}{green_blue:02x}"
 
-    def render(self, my_pos, role: str, barriers, visited, belief_matrix) -> None:
-        """Redraw the whole board from the peer's current knowledge."""
+    def _draw_agent(self, pos, role: str, inset: int, outline: str) -> None:
+        x0, y0, x1, y1 = self._cell_rect(*pos)
+        self.create_oval(x0 + inset, y0 + inset, x1 - inset, y1 - inset,
+                         fill=ROLE_COLORS.get(role, "#555"), outline=outline, width=2)
+        self.create_text((x0 + x1) // 2, (y0 + y1) // 2, text=role[0].upper(),
+                         fill="white", font=("Segoe UI", 14, "bold"))
+
+    def render(self, my_pos, role: str, barriers, visited, belief_matrix,
+               opponent_pos=None, opponent_role: str | None = None) -> None:
+        """Redraw the whole board. In replay both true positions are known, so the
+        opponent marker (a black-ringed disc) is drawn alongside mine; live mode
+        passes opponent_pos=None and only my truth + the belief heatmap show."""
         self.delete("all")
         peak = max((p for row in belief_matrix for p in row), default=0.0)
         for row in range(self.board_size):
@@ -51,9 +61,7 @@ class BoardView(tk.Canvas):
             x0, y0, x1, y1 = self._cell_rect(*cell)
             self.create_rectangle(x0 + 4, y0 + 4, x1 - 4, y1 - 4,
                                   fill="#263238", outline="")
+        if opponent_pos is not None and opponent_role:
+            self._draw_agent(opponent_pos, opponent_role, 14, "black")
         if my_pos is not None:
-            x0, y0, x1, y1 = self._cell_rect(*my_pos)
-            self.create_oval(x0 + 8, y0 + 8, x1 - 8, y1 - 8,
-                             fill=ROLE_COLORS.get(role, "#555"), outline="black", width=2)
-            self.create_text((x0 + x1) // 2, (y0 + y1) // 2, text=role[0].upper(),
-                             fill="white", font=("Segoe UI", 14, "bold"))
+            self._draw_agent(my_pos, role, 8, "black")

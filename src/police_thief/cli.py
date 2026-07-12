@@ -43,10 +43,10 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _launch_replay(config, log_data: dict) -> None:  # pragma: no cover - Tkinter
+def _launch_replay(config, log_data: dict, log_path: str) -> None:  # pragma: no cover - Tkinter
     from police_thief.gui.player import ReplayApp
 
-    ReplayApp(config, log_data).run()
+    ReplayApp(config, log_data, log_path=log_path).run()
 
 
 def _run_peer(args) -> int:
@@ -83,7 +83,7 @@ def main(argv=None) -> int:
         return _run_peer(args)
     if args.command == "replay":
         sdk = SimulationSdk(args.config)
-        _launch_replay(sdk.config, sdk.load_log(args.log))
+        _launch_replay(sdk.config, sdk.load_log(args.log), args.log)
         return 0
     parser.print_help()
     return 2

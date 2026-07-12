@@ -43,6 +43,14 @@ def _swap(text: str, tag: str, inner: str) -> str:
     return re.sub(pattern, lambda m: m.group(1) + inner + m.group(2), text, flags=re.S)
 
 
+def _sync_book_constant(book: str) -> None:
+    """Keep version.py's BOOK_VERSION in step with the book repo (its source)."""
+    text = VERSION_PY.read_text(encoding="utf-8")
+    updated = re.sub(r'BOOK_VERSION\s*=\s*"[^"]+"', f'BOOK_VERSION = "{book}"', text)
+    if updated != text:
+        VERSION_PY.write_text(updated, encoding="utf-8")
+
+
 def main() -> None:
     text = README.read_text(encoding="utf-8")
     code = code_version()
@@ -50,6 +58,7 @@ def main() -> None:
     book = book_version()
     if book:
         text = _swap(text, "BOOK_VERSION", f"based on the **guidelines book `v{book}`**")
+        _sync_book_constant(book)
     README.write_text(text, encoding="utf-8")
 
     bundled = "missing"
