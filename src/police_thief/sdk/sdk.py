@@ -84,11 +84,13 @@ class SimulationSdk:
     def run_peer(self, role: str, stub_llm: bool = False, transport=None,
                  listener=None, controls=None) -> dict:
         """Play the whole series; write the four artifacts; email the result."""
-        from police_thief.peer.sealing import terms_from_config
+        from police_thief.peer.sealing import terms_from_config, validate_agreement
         from police_thief.report.emit import emit_series
         from police_thief.sdk.series import run_series
 
         peer_role = Role(role)
+        # Fail fast on a missing/incomplete agreement BEFORE opening any server/port.
+        validate_agreement(self.config)
         # Build the transport (and this peer's MCP server) ONCE for the whole series.
         transport = transport or self._build_transport(peer_role)
         series = run_series(self.config, peer_role, self._build_llm(stub_llm),

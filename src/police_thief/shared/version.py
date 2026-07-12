@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-CODE_VERSION = "2.3.0"
+CODE_VERSION = "2.3.1"
 BOOK_VERSION = "1.0.37"  # guidelines book (kept in sync by scripts/sync_versions.py)
 SUPPORTED_CONFIG_VERSIONS = ["1.10"]
 

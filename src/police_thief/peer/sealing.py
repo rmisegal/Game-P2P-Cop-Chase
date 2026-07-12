@@ -8,8 +8,17 @@ from datetime import UTC, datetime
 
 from police_thief.domain.crypto import CommitReveal
 from police_thief.domain.protocol import TurnMessage
+from police_thief.exceptions import ConfigError
 from police_thief.shared.sysinfo import collect_spec
 from police_thief.shared.version import CODE_VERSION
+
+# Agreed terms with NO code default: they must resolve (from the shared game.json)
+# or the game would crash mid-play on a None. num_games/hint_max_words/axis_* have
+# defaults and setting may be empty (generic landmarks), so they are not required.
+REQUIRED_TERMS = (
+    "board_size", "smell_grid_size", "decay_per_step", "emit_intensity",
+    "min_center_intensity", "max_steps", "barriers_max", "thief_start", "cop_start",
+)
 
 
 def now_iso() -> str:
@@ -100,6 +109,21 @@ def terms_from_config(cfg) -> dict:
         "cop_start": cfg.get("positions.cop_start"),
         "num_games": cfg.get("game.num_games", 1),
     }
+
+
+def validate_agreement(cfg) -> None:
+    """Fail fast (before any server/port is opened) if a required agreed term is
+    missing. Shared terms now live ONLY in the signed game.json, so a missing or
+    incomplete game.json would otherwise surface as a late None-crash mid-game."""
+    terms = terms_from_config(cfg)
+    missing = [name for name in REQUIRED_TERMS if terms.get(name) is None]
+    if missing:
+        raise ConfigError(
+            "Missing required agreed game term(s): " + ", ".join(missing) + ". "
+            "These are SHARED terms that must be declared in this peer's game.json "
+            "(board_and_agents / pheromones / movement_and_barriers). Make sure "
+            "config/<role>/game.json exists and is complete."
+        )
 
 
 def build_turn_message(state, role: str, hint: str, smell_grid: dict, commit: str,

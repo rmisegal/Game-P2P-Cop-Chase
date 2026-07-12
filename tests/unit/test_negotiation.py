@@ -66,6 +66,28 @@ class TestTermsAndIds:
 
         assert terms_from_config(config)["num_games"] == 1
 
+    def test_validate_agreement_passes_on_complete_config(self, config):
+        from police_thief.peer.sealing import validate_agreement
+
+        validate_agreement(config)  # full config -> no raise
+
+    def test_validate_agreement_fails_fast_on_missing_term(self, tmp_path):
+        from police_thief.exceptions import ConfigError
+        from police_thief.peer.sealing import validate_agreement
+        from police_thief.shared.config import ConfigManager
+
+        cfg_dir = tmp_path / "config"
+        cfg_dir.mkdir()
+        # A private-only TOML with NO shared terms and NO game.json to supply them.
+        (cfg_dir / "game.toml").write_text('version = "1.10"\n', encoding="utf-8")
+        (cfg_dir / "rate_limits.json").write_text('{"version": "1.10"}', encoding="utf-8")
+        cfg = ConfigManager(cfg_dir)
+        with pytest.raises(ConfigError) as exc:
+            validate_agreement(cfg)
+        message = str(exc.value)
+        assert "board_size" in message and "smell_grid_size" in message
+        assert "game.json" in message  # tells the user where to fix it
+
     def test_game_ids_deterministic_and_order_independent(self, terms):
         from police_thief.domain.game_ids import derive_game_ids
 
