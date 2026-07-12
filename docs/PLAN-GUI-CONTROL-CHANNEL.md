@@ -1,8 +1,18 @@
 # PLAN — GUI control channel, game modes, and sub-game controls
 
-Status: **DRAFT for approval.** Scope: the six GUI/protocol requests below, built
-SDK-first and OOP per `glb-quality-code-guidlines` (single SDK entry for business
-logic, no duplication, ≤150 code lines/file, TDD, ruff-clean, ≥85% coverage).
+Status: **P0a–P4 IMPLEMENTED** on branch `feature/gui-control-channel` (P5 docs/
+release pending). All phases green: 253 tests, coverage ~95%, ruff clean, every
+file ≤150 lines, and the real-MCP two-peer integration test passes. Built SDK-first
+and OOP per `glb-quality-code-guidlines`.
+
+Progress:
+- [x] **P0a** game mode/model (Table 22) + step-numbered "My response" labels
+- [x] **P0b** Start gate, sub-games dropdown (1–6), Quit button
+- [x] **P1** ControlMessage + receive_control tool + send/poll_control transport
+- [x] **P2** ControlLink (enable-handshake, status, restart, quit) + GameControls
+- [x] **P3** runtime/series integration: status broadcast, whole-series restart, quit
+- [x] **P4** Tools-menu opt-in, opponent-status panel, Restart/Quit wiring
+- [ ] **P5** README/STRATEGY docs + version bump + merge
 
 ## 1. Requirements (verbatim intent)
 
