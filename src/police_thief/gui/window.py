@@ -112,7 +112,8 @@ class PeerWindow:
     def render(self, view: dict) -> None:
         self.board.render(view["position"], view["role"], view["barriers"],
                           view["visited"], view["belief"],
-                          view.get("opponent_position"), view.get("opponent_role"))
+                          view.get("opponent_position"), view.get("opponent_role"),
+                          view.get("message"))
         self.set_label("step", str(view["step"]))
         if "barriers_used" in view:
             self.set_label("barriers",

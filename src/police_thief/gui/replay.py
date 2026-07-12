@@ -14,6 +14,7 @@ from police_thief.domain.crypto import CommitReveal
 from police_thief.exceptions import CryptoError
 from police_thief.gui.replay_data import (  # noqa: F401  (normalize_log re-exported)
     discover_subgames,
+    frozen_message,
     move_labels,
     normalize_log,
     opponent_positions,
@@ -73,7 +74,9 @@ class ReplayApp:
         self._index, self._playing = 0, False
 
     def _total_steps(self) -> int:
-        return max(len(self._my_log), len(self._history))
+        # Run until the LONGEST track is exhausted so the extra steps of a peer
+        # that moved more times are still shown (the shorter one freezes).
+        return max(len(self._my_log), len(self._history), len(self._opponent_pos))
 
     def _verify_record(self, index: int) -> str:
         if index >= len(self._records):
@@ -111,14 +114,16 @@ class ReplayApp:
             if message.get("barrier_placed"):
                 self._barriers.add(tuple(message["barrier_placed"]))
             self._window.set_label("hint_in", message["hint"])
-        position = tuple(self._my_log[min(i, len(self._my_log) - 1)]["position"])
-        opp = (tuple(self._opponent_pos[min(i, len(self._opponent_pos) - 1)])
-               if self._opponent_pos else None)
+        my_len, opp_len = len(self._my_log), len(self._opponent_pos)
+        position = tuple(self._my_log[min(i, my_len - 1)]["position"]) if my_len else None
+        opp = tuple(self._opponent_pos[min(i, opp_len - 1)]) if opp_len else None
         self._window.render({
             "role": self._role, "step": i + 1, "position": position,
             "barriers": self._barriers, "visited": self._visited,
             "belief": self._belief.as_matrix(),
             "opponent_position": opp, "opponent_role": self._opponent_role,
+            "message": frozen_message(i, my_len, self._role, opp_len,
+                                      self._opponent_role),
         })
         both = " | BOTH agents shown" if self._opponent_pos else " | opponent log missing"
         self._window.set_label(

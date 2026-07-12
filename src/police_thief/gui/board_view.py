@@ -40,11 +40,20 @@ class BoardView(tk.Canvas):
         self.create_text((x0 + x1) // 2, (y0 + y1) // 2, text=role[0].upper(),
                          fill="white", font=("Segoe UI", 14, "bold"))
 
+    def _draw_message(self, message: str) -> None:
+        """Highlighted banner across the top of the board (e.g. a frozen track)."""
+        width = self.board_size * CELL_PX
+        self.create_rectangle(0, 0, width, 22, fill="#ffe082", outline="")
+        self.create_text(width // 2, 11, text=message, fill="#5d4037",
+                         font=("Segoe UI", 10, "bold"))
+
     def render(self, my_pos, role: str, barriers, visited, belief_matrix,
-               opponent_pos=None, opponent_role: str | None = None) -> None:
+               opponent_pos=None, opponent_role: str | None = None,
+               message: str | None = None) -> None:
         """Redraw the whole board. In replay both true positions are known, so the
         opponent marker (a black-ringed disc) is drawn alongside mine; live mode
-        passes opponent_pos=None and only my truth + the belief heatmap show."""
+        passes opponent_pos=None and only my truth + the belief heatmap show. When
+        one track runs out its agent freezes and `message` names the missing step."""
         self.delete("all")
         peak = max((p for row in belief_matrix for p in row), default=0.0)
         for row in range(self.board_size):
@@ -65,3 +74,5 @@ class BoardView(tk.Canvas):
             self._draw_agent(opponent_pos, opponent_role, 14, "black")
         if my_pos is not None:
             self._draw_agent(my_pos, role, 8, "black")
+        if message:
+            self._draw_message(message)

@@ -81,6 +81,18 @@ def subgame_log_path(log_path, log_data: dict, sub: int) -> Path:
     return Path(log_path).resolve().parent / f"log_{game_id}_g{sub:02d}.json"
 
 
+def frozen_message(i: int, my_len: int, my_role: str,
+                   opp_len: int, opp_role: str) -> str | None:
+    """Name any agent whose track has run out at step i (its marker is frozen so
+    the peer that moved more times keeps advancing). None when both still move."""
+    frozen = []
+    if i >= my_len:
+        frozen.append(my_role)
+    if opp_len and i >= opp_len:
+        frozen.append(opp_role)
+    return " | ".join(f"missing {role} step (frozen)" for role in frozen) or None
+
+
 def move_labels(payload: dict, commit: str, verify_status: str) -> dict:
     """The per-step 'my move' panel labels, derived from a sealed record."""
     return {

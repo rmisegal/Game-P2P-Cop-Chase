@@ -5,6 +5,7 @@ import json
 
 from police_thief.gui.replay_data import (
     discover_subgames,
+    frozen_message,
     move_labels,
     opponent_positions,
     subgame_log_path,
@@ -41,6 +42,23 @@ def test_move_labels_defaults_when_empty():
     assert labels["hint_out"] == "-"
     assert labels["tokens"] == "0 / 0"
     assert "[RANDOM]" not in labels["llm_time"]
+
+
+def test_frozen_message_none_while_both_move():
+    assert frozen_message(3, my_len=34, my_role="police",
+                          opp_len=35, opp_role="thief") is None
+
+
+def test_frozen_message_names_shorter_track():
+    # police=34, thief=35: at step index 34 police has run out and freezes.
+    msg = frozen_message(34, my_len=34, my_role="police",
+                         opp_len=35, opp_role="thief")
+    assert msg == "missing police step (frozen)"
+
+
+def test_frozen_message_no_opponent_log():
+    assert frozen_message(3, my_len=2, my_role="police",
+                          opp_len=0, opp_role="thief") == "missing police step (frozen)"
 
 
 def test_discover_subgames_finds_and_sorts(tmp_path):
