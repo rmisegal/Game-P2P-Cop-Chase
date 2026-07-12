@@ -90,8 +90,9 @@ uv run python -m police_thief peer --role thief    # Terminal 2
 Each peer auto-loads **its own config directory** (`config/police/`, `config/thief/`). The
 peers negotiate the game agreement (mutual SHA-256 signatures over the shared game terms)
 and agree a shared `game_id`/`game_uid` before the thief's first move; a mismatch refuses
-to play. Both peers write the four JSON artifacts (below) into `logs/`; a real localhost
-run is checked in at [`docs/sample-run/`](docs/sample-run/).
+to play. Each peer writes its four JSON artifacts (below) into **its own
+`logs/<group_id>/` subfolder**, so on one machine both peers' files coexist; a real
+localhost run is checked in at [`docs/sample-run/`](docs/sample-run/).
 
 > **Start order doesn't matter** — whoever comes up first retries until the other's server
 > is ready. Ports are `8801` (thief) / `8802` (police) on `127.0.0.1`.
@@ -108,9 +109,11 @@ sub-games and the **opposite** role on even ones, so the peers stay consistent (
 cop, B is thief). Scores are per group, aggregated over the series, with a `tie_score` on
 an equal series.
 
-Every series emits **four standardized JSON files** into `logs/`, named from the shared
-human `game_id` and all carrying one shared `game_uid` (agreed in the handshake) that
-stitches them together (book Appendix F):
+Every series emits **four standardized JSON files** into the peer's own
+`logs/<group_id>/` subfolder (roles alternate across sub-games, so the stable
+per-peer key is the group — this lets both peers' files coexist on one machine). All
+four are named from the shared human `game_id` and carry one shared `game_uid` (agreed
+in the handshake) that stitches them together (book Appendix F):
 
 | File | What it is |
 |------|------------|
@@ -149,7 +152,7 @@ no RPM pressure; the old LLM-decides-every-move design cost ~2.4M tokens/sub-gam
 ## Replay a match (visual player, live hash re-verification)
 
 ```powershell
-uv run python -m police_thief replay --log logs/log_<game_id>_g01.json
+uv run python -m police_thief replay --log logs/<group_id>/log_<game_id>_g01.json
 ```
 
 Steps through a saved log with play/pause/step controls: hints, revealed truth/lie

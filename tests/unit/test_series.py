@@ -177,7 +177,7 @@ def test_role_for_alternates():
 class TestSingleGameSeries:
     def test_four_files_share_one_game_uid(self, tmp_path):
         _play(tmp_path, num_games=1)
-        logs = tmp_path / "police" / "logs"
+        logs = tmp_path / "police" / "logs" / "team-police"
         gid = "team-police-vs-team-thief"
         files = [logs / f"declaration_{gid}.json", logs / f"config_{gid}_g01.json",
                  logs / f"log_{gid}_g01.json", logs / f"result_{gid}.json"]
@@ -192,7 +192,7 @@ class TestSingleGameSeries:
         t_uid = results["thief"]["result"]["game_uid"]
         assert p_uid == t_uid  # deterministic, no exchange needed
         gid = "team-police-vs-team-thief"
-        p_log = _load(tmp_path / "police" / "logs" / f"log_{gid}_g01.json")
+        p_log = _load(tmp_path / "police" / "logs" / "team-police" / f"log_{gid}_g01.json")
         assert p_log["summary"]["audit"]["passed"] is True
 
 
@@ -200,7 +200,7 @@ class TestTwoGameSeries:
     def test_role_alternation_and_aggregate(self, tmp_path):
         _play(tmp_path, num_games=2)
         gid = "team-police-vs-team-thief"
-        logs = tmp_path / "police" / "logs"
+        logs = tmp_path / "police" / "logs" / "team-police"
         g01 = _load(logs / f"log_{gid}_g01.json")
         g02 = _load(logs / f"log_{gid}_g02.json")
         assert g01["summary"]["role"] == "police"     # natural role on odd
@@ -211,7 +211,7 @@ class TestTwoGameSeries:
     def test_single_aggregated_result_with_group_scores(self, tmp_path):
         _play(tmp_path, num_games=2)
         gid = "team-police-vs-team-thief"
-        result = _load(tmp_path / "police" / "logs" / f"result_{gid}.json")
+        result = _load(tmp_path / "police" / "logs" / "team-police" / f"result_{gid}.json")
         assert result["num_sub_games"] == 2
         assert len(result["sub_games"]) == 2
         total = result["final_result"]["total_score"]

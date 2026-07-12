@@ -68,7 +68,10 @@ def _subgame_entry(summary, game_id, own_gid, opp_gid, scoring_cfg) -> dict:
         "github_commit": {own_gid: "unknown", opp_gid: "unknown"},
         "tokens": {own_gid: summary["tokens_total"], opp_gid: 0},
         "score": score,
-        "log_files": {own_gid: log_filename(game_id, n), opp_gid: log_filename(game_id, n)},
+        # each group writes into its OWN logs/<group_id>/ subfolder (roles alternate,
+        # so group_id — not role — is the stable per-peer key that avoids collisions).
+        "log_files": {own_gid: f"{own_gid}/{log_filename(game_id, n)}",
+                      opp_gid: f"{opp_gid}/{log_filename(game_id, n)}"},
         "audit": {"log_verified": passed, "tampered": not passed},
     }
 
@@ -84,8 +87,12 @@ def emit_series(config, logs_dir, series) -> dict:
     scoring_cfg = _scoring(config)
     summaries = series.summaries
     first, last = summaries[0], summaries[-1]
+    # This peer writes its four files into its OWN group subfolder so that, on a
+    # single machine, both peers' declaration/config/log/result coexist (they share
+    # game_id, and roles alternate, so group_id is the stable per-peer discriminator).
+    own_dir = Path(logs_dir) / own_gid
 
-    _write(logs_dir, declaration_filename(game_id), build_declaration(
+    _write(own_dir, declaration_filename(game_id), build_declaration(
         game_id, game_uid, DEFAULT_TIMEZONE, first["started_at"],
         ended_at(last["started_at"], last["duration_seconds"]),
         len(summaries), _max_tokens(config), own, opp))
@@ -93,9 +100,9 @@ def emit_series(config, logs_dir, series) -> dict:
     sub_games = []
     for summary in summaries:
         n = summary["sub_game_number"]
-        _write(logs_dir, config_filename(game_id, n),
+        _write(own_dir, config_filename(game_id, n),
                build_config_artifact(config.shared, game_id, game_uid, n))
-        _write(logs_dir, log_filename(game_id, n),
+        _write(own_dir, log_filename(game_id, n),
                build_log(summary, game_id, game_uid, own_gid, opp_gid))
         sub_games.append(_subgame_entry(summary, game_id, own_gid, opp_gid, scoring_cfg))
 
@@ -113,5 +120,5 @@ def emit_series(config, logs_dir, series) -> dict:
     mutual = consensus_signature(symmetric)
     result = build_result(game_id, game_uid, sorted([own_gid, opp_gid]),
                           sub_games, agg, mutual)
-    _write(logs_dir, result_filename(game_id), result)
+    _write(own_dir, result_filename(game_id), result)
     return result

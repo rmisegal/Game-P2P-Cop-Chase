@@ -178,7 +178,7 @@ def test_series_emits_four_files_over_real_mcp(peer_pair, tmp_path):
         assert not t.is_alive(), "series over real MCP did not finish"
 
     gid = "team-police-vs-team-thief"
-    logs = tmp_path / "police" / "logs"
+    logs = tmp_path / "police" / "logs" / "team-police"  # per-peer group subfolder
     files = [logs / f"declaration_{gid}.json", logs / f"config_{gid}_g01.json",
              logs / f"log_{gid}_g01.json", logs / f"result_{gid}.json"]
     uids = set()
