@@ -1,7 +1,7 @@
 # Police-vs-Thief: Fully Distributed AI Pursuit Simulation
 
 <!-- VERSIONS: auto-synced by scripts/sync_versions.py via the pre-commit hook. Do not edit the values between the markers by hand. -->
-> <!--CODE_VERSION_START-->**Code `v2.3.1`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.37`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
+> <!--CODE_VERSION_START-->**Code `v2.3.1`**<!--CODE_VERSION_END--> · <!--BOOK_VERSION_START-->based on the **guidelines book `v1.0.38`**<!--BOOK_VERSION_END--> — the full rules & guidelines PDF is bundled at [`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf).
 >
 > These two versions are **deep-linked**: the book's cover and its reference appendix display this code version (read at LaTeX compile time), and this line is refreshed from the book on every `git commit` (pre-commit hook).
 
@@ -41,7 +41,10 @@ optional *trash-talk hint*. The shipped hint provider is a **zero-token template
 game is **fast, free, and offline by default** — and the only way to win is a better
 **algorithm**, not a bigger model. LLM banter is strictly opt-in (see
 [Trash talk](#trash-talk-provider-optional)). This is the heart of the assignment:
-**upgrade the strategy** ([`docs/STRATEGY.md`](docs/STRATEGY.md)).
+**upgrade the strategy** ([`docs/STRATEGY.md`](docs/STRATEGY.md)). (Two teams *may* agree to
+play with **LLM-driven tactics** instead of the default algorithm — but only by **mutual
+prior agreement in the negotiation**; see the highlighted note under
+[Strategy](#strategy--upgrade-the-brain-the-students-mission).)
 
 Each agent only ever knows:
 1. Its **own** true position, visited cells and barrier quota.
@@ -157,6 +160,15 @@ private `config/<role>/game.toml` at your own `BrainBase` subclass
 heuristic. Full guide, the `Decision` contract, and a worked example:
 **[`docs/STRATEGY.md`](docs/STRATEGY.md)**.
 
+> [!IMPORTANT]
+> **LLM-based tactics are allowed — but only by mutual prior agreement.** By default a
+> peer's **move is a pure algorithm** (no LLM is ever consulted for the move; the LLM, if
+> enabled at all, only writes the trash-talk banter). A team **may** instead drive its
+> **tactic/move with an LLM** rather than a hand-written algorithm — **provided both parties
+> agree to this in advance during the pre-game negotiation.** This keeps the match fair and
+> symmetric: neither side may quietly switch to an LLM-driven strategy. Absent such an
+> explicit, agreed term, the default pure-algorithm move stands for both peers.
+
 ### Trash talk provider (optional)
 
 The `message`/hint each agent sends is produced by a trash-talk provider, chosen in the
@@ -174,17 +186,40 @@ banter*:
 to the template. **Why this matters:** with the default, a sub-game costs ~0 tokens and has
 no RPM pressure; the old LLM-decides-every-move design cost ~2.4M tokens/sub-game.
 
+Every hint — template or LLM — is capped to the negotiated **`world.hint_max_words`** (this
+sim: `15` words) before it goes on the wire. For the LLM providers the agreed **map area**
+and that **word limit** are placed in the model's **system prompt**, so the banter always
+names a landmark from the game's `map_area` and stays within the cap; the full system+user
+prompt is sealed into the log for the audit.
+
 ## Replay a match (visual player, live hash re-verification)
 
 ```powershell
 uv run python -m police_thief replay --log logs/<group_id>/log_<game_id>_g01.json
 ```
 
-Steps through a saved log with play/pause/step controls: hints, revealed truth/lie
+Steps through a saved log with **Play / Pause / Step** controls: hints, revealed truth/lie
 verdicts, smell-driven belief, barriers, tokens + response time per step, and a **live
 re-verification of every commit hash** (`verified OK` / `TAMPERED!`) plus the mutual audit
 and the sealed system-spec declaration. Accepts **both** the standardized
 `log_<game_id>_gNN.json` and the legacy per-role `logs/{role}_match.json`.
+
+The player also provides:
+
+- **Both agents on one board.** Playback loads the given peer's log **and** auto-finds the
+  opponent's sibling log (`logs/<opponent_group_id>/log_<game_id>_gNN.json`) so **both true
+  positions are drawn on the same board** — the whole chase at a glance, not one side's view.
+  If the sibling log is missing it falls back to the belief heatmap.
+- **Restart** — replays the sub-game from the top.
+- **Go to step** — jump straight to any step number (default: the first step).
+- **Sub-game selector** — switch between the series' `g01`, `g02`, … logs found beside the one
+  you opened.
+- **Frozen-track banner.** When the two sides logged a different number of steps, the shorter
+  track **freezes at its last known position** while the other keeps advancing, and a
+  highlighted on-board banner names the frozen side (e.g. **`missing police step (frozen)`**).
+- **Help menu** — **About** (code + book version, License & Copyright) and **Open guidelines
+  PDF**, exactly as in the live GUI. The title bar carries the **game id** and the copyright
+  notice.
 
 ## The GUI — full walkthrough (top to bottom)
 
@@ -197,8 +232,9 @@ position. Here is one peer's window (Police), rendered from a real game log and 
 **① Turn banner (top).** Green **"MY TURN – thinking…"** = the opponent's message arrived and
 it is your turn; grey **"WAITING…"** = the opponent is moving. It also shows the end states:
 `PAUSED`, `STOPPED`, `GAME OVER: <result> – winner <ROLE>`, `ERROR`. The **window title bar**
-reads `<group> | sub-game <n> | <ROLE> | mm:ss` — a live clock that starts at the signature
-exchange and freezes at game over.
+reads `<group> | sub-game <n> | <ROLE> | Game: <game_id> | mm:ss` — carrying the shared
+**game id** and a live clock (starts at the signature exchange, freezes at game over) — and
+ends with the copyright notice **"© 2026 Dr. Yoram Segal – all rights reserved"**.
 
 **② The board + belief heatmap (left).** Your peer's view of the world:
 - the big role-coloured disc marked **P**/**T** is **your own true position** (blue = police,
@@ -234,10 +270,13 @@ total time budget for each of YOUR turns**:
   (`[RANDOM – deadline missed]`), so a slow model never stalls the game. **Lower budget → faster
   games and fewer/no tokens.**
 
-**⑤ Buttons (bottom).** **Pause** freezes *your* agent before it thinks (pausing longer than the
-opponent's `turn_timeout_seconds` hands it a technical win, as in a real distributed game);
-**Play** resumes; **Stop** cancels your game (`result: stopped`, audit skipped); **About / System
-spec** shows the code version, model, and your sealed host spec (CPU/RAM/GPU).
+**⑤ Buttons (bottom) + Help menu.** **Pause** freezes *your* agent before it thinks (pausing
+longer than the opponent's `turn_timeout_seconds` hands it a technical win, as in a real
+distributed game); **Play** resumes; **Stop** cancels your game (`result: stopped`, audit
+skipped). The **Help** menu (menu bar) has **About** — showing the **code version**, the
+**guidelines-book version**, the full **License & Copyright** notice, the model, and your
+sealed host spec (CPU/RAM/GPU) — and **Open guidelines PDF**, which opens
+[`docs/police_thief_p2p.pdf`](docs/police_thief_p2p.pdf) in a separate window.
 
 ### Reading the heatmap to improve your strategy
 
@@ -266,23 +305,52 @@ keep them near zero by staying on `template`, raising `every_n_steps`, choosing 
 (Haiku / Ollama), or sliding the step-time budget down. **Strategy lives in the algorithm, not in
 the tokens.**
 
-## Configuration — shared game terms + private per-peer settings
+## Configuration — when JSON, when TOML, and why
 
-Each peer holds three files under `config/<role>/`:
+Each peer holds three files under `config/<role>/`. The split follows **one rule**:
 
-- **`game.json`** — the **shared, agreed, signed** game terms. **Both peers must hold a
+> **Anything the two sides must AGREE on lives in the shared, signed `game.json`.
+> Anything that is this peer's own private, local business lives in `game.toml`.**
+
+The reason is the peer-to-peer, no-referee model: the two agents are like two students
+on two different PCs who only trust what they have both **signed**. A value that shapes
+the shared game — the board, the start cells, how far scent carries, how the location is
+named in hints — must be **identical on both sides**, so it belongs in `game.json`, whose
+byte-for-byte contents are hashed and cross-verified in the pre-game handshake (a mismatch
+refuses to play). A value that only affects *my* machine — my port, my GUI speed, my model
+choice — is nobody else's concern and must **not** leak into the agreement, so it stays in
+`game.toml`.
+
+- **`game.json`** — the **shared, agreed, signed** game terms; **both peers hold a
   byte-identical copy** (verified by the signature exchange). Book Appendix F schema:
-  `board_and_agents` (grid, start cells), `movement_and_barriers` (`move_set`, barriers,
-  moves, survival threshold), `scoring` (+`tie_score`), `pheromones`,
-  `network_and_league` (`num_games`, token budget), `rate_limiter_gatekeeper`.
-- **`game.toml`** — this peer's **private, local** settings: group identity (id, members,
-  repos, MCP servers), MCP port + opponent URL, GUI pacing, belief tuning, email, and the
-  optional `[strategy]` / `[trash_talk]` blocks. Overlays `game.json` for local-only keys.
+  - `board_and_agents` — grid size, `thief_start` / `cop_start`, and the negotiated
+    **coordinate system**: `axis_origin_corner` (where cell `(0,0)` sits, default
+    `top-left`) and `axis_start_index` (first index of each axis, default `0`).
+  - `world` — `map_area` (the real-world area the game is set in, e.g. `"New York"`;
+    drives the location landmarks in the hints; default `""` = generic) and
+    `hint_max_words` (a **hard cap** on the words in every trash-talk hint; this sim uses
+    `15`).
+  - `movement_and_barriers` (`move_set`, barriers, moves, survival threshold),
+    `scoring` (+`tie_score`), `pheromones` (center/min-center intensity, decay, grid),
+    `network_and_league` (`num_games`, token budget), `rate_limiter_gatekeeper`.
+- **`game.toml`** — this peer's **private, local settings only** — it contains **nothing
+  relevant to the opponent**: group identity (id, members, repos, MCP servers), MCP port +
+  opponent URL, GUI pacing (`step_speed_seconds`) + RNG `seed`, belief tuning, `[llm]`
+  model choice, email, and the optional `[strategy]` / `[trash_talk]` blocks. It supplies
+  only local keys; the shared terms are **not** duplicated here.
 - **`rate_limits.json`** — per-service limits enforced by the `ApiGatekeeper` (FIFO queue
   on overflow, retry on transient errors).
 
+Because the shared terms live **only** in `game.json`, a peer whose `game.json` is missing
+or incomplete would otherwise crash mid-game. To prevent that, `run_peer` runs a **fail-fast
+startup check** (`sealing.validate_agreement`) *before* opening any server or port: if a
+required agreed term (board size, the smell/pheromone params, movement limits, start cells)
+is absent it aborts with a clear message naming exactly which term is missing and where to
+declare it.
+
 Shipped defaults (in `game.json`): grid **7×7**, `move_set` `["N","S","E","W","STAY"]`,
-thief start `[3,3]`, cop start `[0,0]`, scoring `20/5/5/10`, `tie_score 2`, `num_games 1`.
+thief start `[3,3]`, cop start `[0,0]`, axis origin `top-left` from `0`, map area
+`"New York"`, hint cap `15` words, scoring `20/5/5/10`, `tie_score 2`, `num_games 1`.
 
 ## Architecture
 
@@ -304,7 +372,7 @@ CLI / Tkinter GUI (LivePeerApp, ReplayApp, PeerWindow)   ← presentation only
 ## Development
 
 ```powershell
-uv run pytest -q                                         # full suite (193 tests)
+uv run pytest -q                                         # full suite (208 tests)
 uv run pytest --cov=src --cov-report=term-missing        # coverage ≥ 85%
 uv run ruff check src tests                              # zero violations
 ```
