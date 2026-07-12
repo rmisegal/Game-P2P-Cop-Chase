@@ -58,6 +58,31 @@ answer honestly (the audit would expose a lie). The thief wins by **surviving
 (config-driven; king moves remain available). Each peer also seals a step-0 **host system
 spec** (CPU, RAM, GPU/VRAM, OS) — the book's mandatory pre-game declaration.
 
+## Run — every command
+
+```powershell
+uv sync                                                                # one-time install
+
+# --- Play a game: two terminals, each peer a separate localhost process ---
+uv run python -m police_thief peer --role police --stub-llm --no-gui   # Terminal 1 (fast, no LLM)
+uv run python -m police_thief peer --role thief  --stub-llm --no-gui   # Terminal 2
+
+# ...or with the live Tkinter GUI (one window per peer):
+uv run python -m police_thief peer --role police                       # Terminal 1
+uv run python -m police_thief peer --role thief                        # Terminal 2
+
+# --- Play the log back AFTER the game (visual replay, live hash re-verification) ---
+uv run python -m police_thief replay --log logs/<group_id>/log_<game_id>_g01.json
+uv run python -m police_thief replay --log logs/police_match.json      # legacy per-role log also works
+```
+
+- **Ports:** thief `8801`, police `8802` on `127.0.0.1`; **start order doesn't matter** (each
+  peer retries until the other's server is up).
+- **Number of sub-games:** default `1`; for the book-mandated 6 set `network_and_league.num_games`
+  in **both** `config/<role>/game.json` (they must stay byte-identical).
+- **`--stub-llm`** = deterministic template banter, no LLM (drop it for real `claude -p`);
+  **`--no-gui`** = headless. The two flags are independent.
+
 ## Requirements
 
 - **Python 3.13+**, [uv](https://docs.astral.sh/uv/).
@@ -160,6 +185,86 @@ verdicts, smell-driven belief, barriers, tokens + response time per step, and a 
 re-verification of every commit hash** (`verified OK` / `TAMPERED!`) plus the mutual audit
 and the sealed system-spec declaration. Accepts **both** the standardized
 `log_<game_id>_gNN.json` and the legacy per-role `logs/{role}_match.json`.
+
+## The GUI — full walkthrough (top to bottom)
+
+Run **without `--no-gui`** and each peer opens its own window showing **only what that peer
+legally knows** — its own truth and its *belief* about the opponent, never the opponent's real
+position. Here is one peer's window (Police), rendered from a real game log and annotated ①–⑤:
+
+![Annotated GUI](docs/images/gui-annotated.png)
+
+**① Turn banner (top).** Green **"MY TURN – thinking…"** = the opponent's message arrived and
+it is your turn; grey **"WAITING…"** = the opponent is moving. It also shows the end states:
+`PAUSED`, `STOPPED`, `GAME OVER: <result> – winner <ROLE>`, `ERROR`. The **window title bar**
+reads `<group> | sub-game <n> | <ROLE> | mm:ss` — a live clock that starts at the signature
+exchange and freezes at game over.
+
+**② The board + belief heatmap (left).** Your peer's view of the world:
+- the big role-coloured disc marked **P**/**T** is **your own true position** (blue = police,
+  orange = thief);
+- small **grey dots** are cells you have **visited** (your trail);
+- **dark squares** are **barriers** (police-placed walls, impassable to both);
+- the **white→red shading** is the **belief heatmap** — how likely the opponent is on each cell,
+  fused from its decaying smell grids and its (possibly lying) hints. **Redder = more likely.**
+  The opponent's *true* cell is never drawn; you only ever see this guess.
+
+**③ Info panel (right)** — one row per fact about the current step:
+
+| Label | How to read it |
+|---|---|
+| **Step** | current move number of this sub-game. |
+| **Model** | the LLM behind the banter (`stub`/`template` = none). |
+| **Tokens step / total** | tokens the **banter** spent this step / cumulatively. **`0 / 0` = the free template** — the *move* never spends tokens. |
+| **LLM response (s)** | how long the banter call took (`0.00` for template); `[RANDOM – deadline missed]` if a banter call timed out. |
+| **Barriers used** | police barrier quota consumed / max. |
+| **Opponent says** | the opponent's last natural-language hint — **may be a lie**. |
+| **I said** | your own hint this step. |
+| **My verdict** | your self-declared `truth`/`lie` for that hint (sealed & audited). |
+| **My commit (sealed)** | SHA-256 of your sealed move, re-verified at the audit. |
+| **Status** | agreement / audit messages and the end-of-game summary. |
+
+**④ Step-time-budget slider (0–60 s) — the control that matters most.** It is the **enforced
+total time budget for each of YOUR turns**:
+- the move is **instant Python**, so this budget only bounds the optional **banter** call;
+- with the shipped **template banter (0 tokens)** the turn is already instant, so the slider just
+  **paces the animation** (a fast turn is padded up to the budget so you can watch it);
+- slide to **`0`** = flat-out, no waiting, **no LLM, zero tokens** — the fastest game;
+- with an LLM banter provider, a call over budget is cut off and falls back to the free template
+  (`[RANDOM – deadline missed]`), so a slow model never stalls the game. **Lower budget → faster
+  games and fewer/no tokens.**
+
+**⑤ Buttons (bottom).** **Pause** freezes *your* agent before it thinks (pausing longer than the
+opponent's `turn_timeout_seconds` hands it a technical win, as in a real distributed game);
+**Play** resumes; **Stop** cancels your game (`result: stopped`, audit skipped); **About / System
+spec** shows the code version, model, and your sealed host spec (CPU/RAM/GPU).
+
+### Reading the heatmap to improve your strategy
+
+The heatmap is your only window into where the opponent is — reading it *is* the game. It
+**sharpens over a match** as smells accumulate (Police view, same game, three moments):
+
+![Heatmap sharpening over a game](docs/images/heatmap-progression.png)
+
+- **Early** the belief is **diffuse** (a broad pink smear) — little information, so keep options
+  open and explore rather than commit.
+- **Mid-game** it **concentrates** into a bright cluster as the scent trail builds — the **police
+  should drive toward the hot cells**; the **thief should flee away from where it thinks the
+  police believes it is**, and can *bluff* by sending a lying hint to smear the map.
+- **Late** a single **hot cell** is the current best guess. Police: close the distance to it and
+  wall the escape routes; Thief: keep your true position **off** the reddest cells.
+
+**Improving strategy** (your job — [`docs/STRATEGY.md`](docs/STRATEGY.md)) means writing a
+`_pick_move` that exploits this heatmap better than the shipped greedy default — cutting off the
+thief's escape corners, or steering the police's belief away from you with deceptive hints while
+breaking the scent trail.
+
+**Improving token consumption:** watch **Tokens step / total** and **LLM response (s)**. The
+default already reads **`0 / 0`** — the move is pure Python and the banter is a free template, so
+a whole 6-game series costs **~0 tokens**. They only climb if you opt into an LLM banter provider;
+keep them near zero by staying on `template`, raising `every_n_steps`, choosing a small model
+(Haiku / Ollama), or sliding the step-time budget down. **Strategy lives in the algorithm, not in
+the tokens.**
 
 ## Configuration — shared game terms + private per-peer settings
 
